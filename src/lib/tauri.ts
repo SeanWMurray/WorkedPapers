@@ -4,11 +4,11 @@ import type {
   Aje,
   AjeImpact,
   AppSettings,
+  AttachedFile,
   AuditEntry,
   EngagementMeta,
   Grouping,
   Leadsheet,
-  LeadsheetQuery,
   MapNumber,
   ReportData,
   Signoff,
@@ -41,15 +41,14 @@ export const getEngagementMeta = () => invoke<EngagementMeta>("get_engagement_me
 export const importTbCsv = (rows: {
   account_number: string;
   account_name: string;
-  account_type: string;
   current_balance: number;
   prior_balance: number;
 }[]) => invoke<number>("import_tb_csv", { rows });
 
 export const getTbAccounts = () => invoke<TbAccount[]>("get_tb_accounts");
 
-export const updateAccountMapping = (account_number: string, map_number: string | null) =>
-  invoke<void>("update_account_mapping", { account_number, map_number });
+export const updateAccountMapping = (accountNumber: string, mapNumber: string | null) =>
+  invoke<void>("update_account_mapping", { accountNumber, mapNumber });
 
 export const getTbSummary = () => invoke<TbSummary>("get_tb_summary");
 
@@ -64,8 +63,8 @@ export const postAje = (payload: {
   lines: { account_number: string; debit: number; credit: number; description?: string }[];
 }) => invoke<number>("post_aje", { payload });
 
-export const voidAje = (aje_id: number, reason: string, voided_by: string) =>
-  invoke<void>("void_aje", { aje_id, reason, voided_by });
+export const voidAje = (ajeId: number, reason: string, voidedBy: string) =>
+  invoke<void>("void_aje", { ajeId, reason, voidedBy });
 
 export const getAjeImpact = () => invoke<AjeImpact[]>("get_aje_impact");
 
@@ -91,38 +90,38 @@ export const upsertGrouping = (payload: {
 }) => invoke<number>("upsert_grouping", { payload });
 
 export const assignGrouping = (
-  account_number: string,
-  grouping_id: number,
+  accountNumber: string,
+  groupingId: number,
   assign: boolean
-) => invoke<void>("assign_grouping", { account_number, grouping_id, assign });
+) => invoke<void>("assign_grouping", { accountNumber, groupingId, assign });
 
 // ─── Leadsheets ───────────────────────────────────────────────────────────────
 
 export const getLeadsheet = (query: { map_number?: string; grouping_id?: number }) =>
   invoke<Leadsheet>("get_leadsheet", { query });
 
-export const saveLeadsheetNote = (scope: string, content: string, updated_by: string) =>
-  invoke<void>("save_leadsheet_note", { scope, content, updated_by });
+export const saveLeadsheetNote = (scope: string, content: string, updatedBy: string) =>
+  invoke<void>("save_leadsheet_note", { scope, content, updatedBy });
 
 export const addTickmark = (
   symbol: string,
   description: string,
   anchor: string,
-  created_by: string
-) => invoke<number>("add_tickmark", { symbol, description, anchor, created_by });
+  createdBy: string
+) => invoke<number>("add_tickmark", { symbol, description, anchor, createdBy });
 
 export const removeTickmark = (id: number) => invoke<void>("remove_tickmark", { id });
 
 // ─── Sign-offs & Audit ────────────────────────────────────────────────────────
 
-export const signOff = (scope: string, role: string, signed_by: string) =>
-  invoke<number>("sign_off", { scope, role, signed_by });
+export const signOff = (scope: string, role: string, signedBy: string) =>
+  invoke<number>("sign_off", { scope, role, signedBy });
 
 export const getSignoffs = (scope?: string) =>
   invoke<Signoff[]>("get_signoffs", { scope: scope ?? null });
 
-export const lockEngagement = (locked_by: string) =>
-  invoke<string>("lock_engagement", { locked_by });
+export const lockEngagement = (lockedBy: string) =>
+  invoke<string>("lock_engagement", { lockedBy });
 
 export const getAuditTrail = (limit?: number) =>
   invoke<AuditEntry[]>("get_audit_trail", { limit: limit ?? null });
@@ -133,11 +132,11 @@ export const renderReportData = () => invoke<ReportData>("render_report_data");
 
 // ─── Archive (.wwp) ───────────────────────────────────────────────────────────
 
-export const exportWwp = (output_path: string, password: string) =>
-  invoke<void>("export_wwp", { output_path, password });
+export const exportWwp = (outputPath: string, password: string) =>
+  invoke<void>("export_wwp", { outputPath, password });
 
-export const importWwp = (wwp_path: string, target_dir: string, password: string) =>
-  invoke<string>("import_wwp", { wwp_path, target_dir, password });
+export const importWwp = (wwpPath: string, targetDir: string, password: string) =>
+  invoke<string>("import_wwp", { wwpPath, targetDir, password });
 
 // ─── Roll-Forward ─────────────────────────────────────────────────────────────
 
@@ -146,6 +145,19 @@ export const rollForward = (payload: {
   new_year_end: string;
   new_fiscal_year: number;
 }) => invoke<string>("roll_forward", { payload });
+
+// ─── File Attachments ─────────────────────────────────────────────────────────
+
+export const listAttachments = () => invoke<AttachedFile[]>("list_attachments");
+
+export const attachFile = (sourcePath: string) =>
+  invoke<AttachedFile>("attach_file", { sourcePath });
+
+export const removeAttachment = (filePath: string) =>
+  invoke<void>("remove_attachment", { filePath });
+
+export const openAttachment = (filePath: string) =>
+  invoke<void>("open_attachment", { filePath });
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 

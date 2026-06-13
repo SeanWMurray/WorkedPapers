@@ -1,15 +1,6 @@
 // ─── Shared domain types mirroring the Rust models ────────────────────────────
 // Keep in sync with src-tauri/src/models.rs
 
-export type AccountType =
-  | "ASSET"
-  | "LIABILITY"
-  | "EQUITY"
-  | "REVENUE"
-  | "EXPENSE"
-  | "OTHER_INCOME"
-  | "OTHER_EXPENSE";
-
 export type AjeType = "ADJUSTING" | "RECLASSIFYING" | "TAX";
 
 export type SignoffRole = "PREPARER" | "REVIEWER" | "PARTNER";
@@ -29,7 +20,6 @@ export interface TbAccount {
   id: number;
   account_number: string;
   account_name: string;
-  account_type: AccountType;
   current_balance: number;
   prior_balance: number;
   map_number: string | null;
@@ -38,12 +28,8 @@ export interface TbAccount {
 }
 
 export interface TbSummary {
-  total_assets: number;
-  total_liabilities: number;
-  total_equity: number;
-  total_revenue: number;
-  total_expenses: number;
-  net_income: number;
+  total_debits: number;
+  total_credits: number;
   is_balanced: boolean;
 }
 
@@ -146,6 +132,14 @@ export interface AppSettings {
   default_currency: string;
   theme: "light" | "dark";
   recent_files: string[];
+}
+
+export interface AttachedFile {
+  name: string;
+  path: string;
+  size_bytes: number;
+  modified: string;
+  ext: string;
 }
 
 export interface AuditEntry {

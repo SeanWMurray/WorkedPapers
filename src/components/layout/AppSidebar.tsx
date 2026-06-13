@@ -6,6 +6,7 @@ const NAV = [
   { to: "/leadsheet", label: "Leadsheets" },
   { to: "/mapping", label: "Mapping" },
   { to: "/reports", label: "Reports" },
+  { to: "/files", label: "Files" },
 ];
 
 const SETTINGS_NAV = [

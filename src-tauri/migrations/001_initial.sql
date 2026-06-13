@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS tb_accounts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     account_number  TEXT NOT NULL UNIQUE,
     account_name    TEXT NOT NULL,
-    account_type    TEXT NOT NULL,   -- ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE | OTHER_INCOME | OTHER_EXPENSE
     current_balance REAL NOT NULL DEFAULT 0.0,
     prior_balance   REAL NOT NULL DEFAULT 0.0,
     map_number      TEXT REFERENCES map_numbers(code) ON DELETE SET NULL,
@@ -123,7 +122,6 @@ CREATE TABLE IF NOT EXISTS audit_trail (
 
 -- ── Performance Indexes ───────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_tb_accounts_map    ON tb_accounts(map_number);
-CREATE INDEX IF NOT EXISTS idx_tb_accounts_type   ON tb_accounts(account_type);
 CREATE INDEX IF NOT EXISTS idx_aje_lines_account  ON aje_lines(account_number);
 CREATE INDEX IF NOT EXISTS idx_aje_lines_aje_id   ON aje_lines(aje_id);
 CREATE INDEX IF NOT EXISTS idx_signoffs_scope     ON signoffs(scope);

@@ -1,36 +1,58 @@
-import { useState } from "react";
-import { useSetAtom } from "jotai";
+import { useState, useEffect } from "react";
+import { useAtom, useSetAtom } from "jotai";
 import { engagementAtom, settingsAtom } from "@/store/atoms";
-import { openEngagement, createEngagement, open, save } from "@/lib/tauri";
+import { openEngagement, createEngagement, open, save, getSettings, saveSettings } from "@/lib/tauri";
+import type { AppSettings } from "@/types";
 
 type Mode = "home" | "create";
 
+const MAX_RECENT = 8;
+
+function addToRecent(settings: AppSettings, path: string): AppSettings {
+  const filtered = settings.recent_files.filter((p) => p !== path);
+  return {
+    ...settings,
+    recent_files: [path, ...filtered].slice(0, MAX_RECENT),
+  };
+}
+
 export default function WelcomePage() {
   const setEngagement = useSetAtom(engagementAtom);
+  const [settings, setSettings] = useAtom(settingsAtom);
   const [mode, setMode] = useState<Mode>("home");
   const [error, setError] = useState<string | null>(null);
 
-  // Create form state
   const [entityName, setEntityName] = useState("");
   const [yearEnd, setYearEnd] = useState("");
   const [fiscalYear, setFiscalYear] = useState(new Date().getFullYear());
   const [currency, setCurrency] = useState("USD");
 
-  const handleOpen = async () => {
+  useEffect(() => {
+    getSettings().then(setSettings).catch(() => {});
+  }, []);
+
+  const openPath = async (path: string) => {
     try {
-      const selected = await open({
-        title: "Open Engagement",
-        filters: [
-          { name: "Engagement Database", extensions: ["db"] },
-          { name: "All Files", extensions: ["*"] },
-        ],
-      });
-      if (!selected || Array.isArray(selected)) return;
-      const meta = await openEngagement(selected);
+      const meta = await openEngagement(path);
+      const updated = addToRecent(settings, path);
+      await saveSettings(updated);
+      setSettings(updated);
       setEngagement(meta);
     } catch (e) {
-      setError(String(e));
+      setError(`Could not open "${path}": ${e}`);
     }
+  };
+
+  const handleOpen = async () => {
+    const selected = await open({
+      title: "Open Engagement",
+      filters: [
+        { name: "Engagement Database", extensions: ["db"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    if (!selected || Array.isArray(selected)) return;
+    await openPath(selected);
   };
 
   const handleCreate = async () => {
@@ -52,10 +74,22 @@ export default function WelcomePage() {
         fiscal_year: fiscalYear,
         currency,
       });
+      const updated = addToRecent(settings, savePath);
+      await saveSettings(updated);
+      setSettings(updated);
       setEngagement(meta);
     } catch (e) {
       setError(String(e));
     }
+  };
+
+  const handleRemoveRecent = async (path: string) => {
+    const updated = {
+      ...settings,
+      recent_files: settings.recent_files.filter((p) => p !== path),
+    };
+    await saveSettings(updated);
+    setSettings(updated);
   };
 
   return (
@@ -69,7 +103,7 @@ export default function WelcomePage() {
         gap: 32,
       }}
     >
-      <div>
+      <div style={{ textAlign: "center" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
           Worked Papers
         </h1>
@@ -79,13 +113,103 @@ export default function WelcomePage() {
       </div>
 
       {mode === "home" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: 280 }}>
-          <button className="btn btn-primary" style={{ height: 36 }} onClick={handleOpen}>
-            Open Engagement (.db)
-          </button>
-          <button className="btn" style={{ height: 36 }} onClick={() => setMode("create")}>
-            New Engagement
-          </button>
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+          {/* Actions */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, width: 200 }}>
+            <button className="btn btn-primary" style={{ height: 36 }} onClick={handleOpen}>
+              Open Engagement…
+            </button>
+            <button className="btn" style={{ height: 36 }} onClick={() => { setMode("create"); setError(null); }}>
+              New Engagement…
+            </button>
+          </div>
+
+          {/* Recent files */}
+          {settings.recent_files.length > 0 && (
+            <div
+              style={{
+                width: 360,
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 12px",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "var(--color-text-muted)",
+                  borderBottom: "1px solid var(--color-border)",
+                  background: "var(--color-surface)",
+                }}
+              >
+                Recent
+              </div>
+              {settings.recent_files.map((path) => {
+                const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
+                const dir = path.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+                return (
+                  <div
+                    key={path}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "0 12px",
+                      height: 40,
+                      borderBottom: "1px solid var(--color-border)",
+                      cursor: "pointer",
+                      gap: 8,
+                    }}
+                    onClick={() => openPath(path)}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = "var(--color-hover-bg)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background = "")
+                    }
+                  >
+                    <div style={{ flex: 1, overflow: "hidden" }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: "var(--color-text-muted)",
+                          fontFamily: "var(--font-mono)",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {dir}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-sm"
+                      style={{ fontSize: 10, padding: "0 6px", height: 20 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveRecent(path);
+                      }}
+                      title="Remove from recent"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -145,7 +269,7 @@ export default function WelcomePage() {
       )}
 
       {error && (
-        <div style={{ color: "var(--color-danger)", fontSize: 12, maxWidth: 320 }}>
+        <div style={{ color: "var(--color-danger)", fontSize: 12, maxWidth: 400 }}>
           {error}
         </div>
       )}

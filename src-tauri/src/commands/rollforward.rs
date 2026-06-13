@@ -105,15 +105,12 @@ pub async fn roll_forward(
                 }
             }
 
-            // Roll forward accounts:
-            //   - Balance sheet accounts: prior_balance = (current_balance + aje adjustments)
-            //   - P&L accounts: zero out both balances
+            // Roll forward: ending balance (post-AJE) becomes prior year; current resets to 0
             {
                 let mut stmt = src.conn.prepare(
                     "SELECT
                          a.account_number,
                          a.account_name,
-                         a.account_type,
                          a.map_number,
                          a.notes,
                          a.current_balance + COALESCE((
@@ -124,30 +121,19 @@ pub async fn roll_forward(
                      FROM tb_accounts a",
                 )?;
 
-                let accounts: Vec<(String, String, String, Option<String>, Option<String>, f64)> =
+                let accounts: Vec<(String, String, Option<String>, Option<String>, f64)> =
                     stmt.query_map([], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
                     })?
                     .collect::<std::result::Result<_, _>>()?;
 
-                for (num, name, acct_type, map, notes, ending) in accounts {
-                    let is_pl = matches!(
-                        acct_type.as_str(),
-                        "REVENUE" | "EXPENSE" | "OTHER_INCOME" | "OTHER_EXPENSE"
-                    );
+                for (num, name, map, notes, ending) in accounts {
                     conn.execute(
                         "INSERT INTO tb_accounts
-                             (account_number, account_name, account_type, map_number, notes,
+                             (account_number, account_name, map_number, notes,
                               current_balance, prior_balance)
-                         VALUES (?1, ?2, ?3, ?4, ?5, 0.0, ?6)",
-                        params![
-                            num,
-                            name,
-                            acct_type,
-                            map,
-                            notes,
-                            if is_pl { 0.0 } else { ending },
-                        ],
+                         VALUES (?1, ?2, ?3, ?4, 0.0, ?5)",
+                        params![num, name, map, notes, ending],
                     )?;
                 }
             }

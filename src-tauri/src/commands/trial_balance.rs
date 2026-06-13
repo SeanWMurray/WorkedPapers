@@ -1,24 +1,19 @@
 use crate::db::AppDb;
 use crate::error::{AppError, Result};
-use crate::models::{AccountType, TbAccount, TbSummary};
+use crate::models::{TbAccount, TbSummary};
 use crate::AppState;
-use rayon::prelude::*;
 use rusqlite::params;
 use serde::Deserialize;
-use std::str::FromStr;
 use tauri::State;
 
 #[derive(Debug, Deserialize)]
 pub struct CsvRow {
     pub account_number: String,
     pub account_name: String,
-    pub account_type: String,
     pub current_balance: f64,
     pub prior_balance: f64,
 }
 
-/// Import a TB from a pre-parsed list of rows (CSV parsing happens in a Web Worker on the frontend).
-/// Entire import is wrapped in one transaction for atomicity.
 #[tauri::command]
 pub async fn import_tb_csv(
     rows: Vec<CsvRow>,
@@ -27,36 +22,24 @@ pub async fn import_tb_csv(
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
 
-    // Validate & parse types in parallel using rayon before hitting the DB
-    let validated: Vec<_> = rows
-        .par_iter()
-        .map(|r| {
-            let acct_type = parse_account_type(&r.account_type)?;
-            Ok((r, acct_type))
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    let count = validated.len();
+    let count = rows.len();
 
     db.transaction(|conn| {
-        // Wipe existing TB so re-import is idempotent
         conn.execute("DELETE FROM tb_accounts", [])?;
 
-        let mut stmt = conn.prepare_cached(
-            "INSERT INTO tb_accounts (account_number, account_name, account_type, current_balance, prior_balance)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+        let mut stmt = conn.prepare(
+            "INSERT INTO tb_accounts (account_number, account_name, current_balance, prior_balance)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(account_number) DO UPDATE SET
                account_name    = excluded.account_name,
-               account_type    = excluded.account_type,
                current_balance = excluded.current_balance,
                prior_balance   = excluded.prior_balance",
         )?;
 
-        for (row, acct_type) in &validated {
+        for row in &rows {
             stmt.execute(params![
                 &row.account_number,
                 &row.account_name,
-                format!("{:?}", acct_type).to_uppercase(),
                 row.current_balance,
                 row.prior_balance,
             ])?;
@@ -75,7 +58,6 @@ pub async fn import_tb_csv(
     })
 }
 
-/// Fetch all TB accounts, adjusted for posted (non-voided) AJEs.
 #[tauri::command]
 pub async fn get_tb_accounts(
     state: State<'_, AppState>,
@@ -83,12 +65,11 @@ pub async fn get_tb_accounts(
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
 
-    let mut stmt = db.conn.prepare_cached(
+    let mut stmt = db.conn.prepare(
         "SELECT
              a.id,
              a.account_number,
              a.account_name,
-             a.account_type,
              a.current_balance,
              a.prior_balance,
              a.map_number,
@@ -103,17 +84,16 @@ pub async fn get_tb_accounts(
 
     let accounts = stmt
         .query_map([], |row| {
-            let aje_net: f64 = row.get(8)?;
+            let aje_net: f64 = row.get(7)?;
             Ok(TbAccount {
                 id: row.get(0)?,
                 account_number: row.get(1)?,
                 account_name: row.get(2)?,
-                account_type: AccountType::Asset, // resolved below
-                current_balance: row.get::<_, f64>(4)? + aje_net,
-                prior_balance: row.get(5)?,
-                map_number: row.get(6)?,
+                current_balance: row.get::<_, f64>(3)? + aje_net,
+                prior_balance: row.get(4)?,
+                map_number: row.get(5)?,
                 grouping_ids: vec![],
-                notes: row.get(7)?,
+                notes: row.get(6)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -121,7 +101,6 @@ pub async fn get_tb_accounts(
     Ok(accounts)
 }
 
-/// Assign (or clear) a map number for an account.
 #[tauri::command]
 pub async fn update_account_mapping(
     account_number: String,
@@ -139,7 +118,6 @@ pub async fn update_account_mapping(
     Ok(())
 }
 
-/// Return totals by account type (used for the TB balance check widget).
 #[tauri::command]
 pub async fn get_tb_summary(
     state: State<'_, AppState>,
@@ -147,52 +125,20 @@ pub async fn get_tb_summary(
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
 
-    let mut stmt = db.conn.prepare_cached(
+    let mut stmt = db.conn.prepare(
         "SELECT
-             account_type,
-             SUM(current_balance + COALESCE((
-                 SELECT SUM(l.debit - l.credit)
-                 FROM aje_lines l JOIN ajes j ON j.id = l.aje_id
-                 WHERE l.account_number = a.account_number AND j.is_voided = 0
-             ), 0.0)) AS adjusted_balance
-         FROM tb_accounts a
-         GROUP BY account_type",
+             COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0.0),
+             COALESCE(SUM(CASE WHEN current_balance < 0 THEN current_balance ELSE 0 END), 0.0)
+         FROM tb_accounts",
     )?;
 
-    let mut totals = std::collections::HashMap::<String, f64>::new();
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))?;
-    for row in rows {
-        let (k, v) = row?;
-        totals.insert(k, v);
-    }
-
-    let assets = totals.get("ASSET").copied().unwrap_or(0.0);
-    let liabilities = totals.get("LIABILITY").copied().unwrap_or(0.0);
-    let equity = totals.get("EQUITY").copied().unwrap_or(0.0);
-    let revenue = totals.get("REVENUE").copied().unwrap_or(0.0);
-    let expenses = totals.get("EXPENSE").copied().unwrap_or(0.0);
-    let net_income = revenue - expenses;
+    let (total_debits, total_credits): (f64, f64) = stmt.query_row([], |row| {
+        Ok((row.get(0)?, row.get(1)?))
+    })?;
 
     Ok(TbSummary {
-        total_assets: assets,
-        total_liabilities: liabilities,
-        total_equity: equity,
-        total_revenue: revenue,
-        total_expenses: expenses,
-        net_income,
-        is_balanced: (assets - liabilities - equity - net_income).abs() < 0.005,
+        total_debits,
+        total_credits,
+        is_balanced: (total_debits + total_credits).abs() < 0.005,
     })
-}
-
-fn parse_account_type(s: &str) -> Result<AccountType> {
-    match s.trim().to_uppercase().as_str() {
-        "ASSET" | "ASSETS" | "A" => Ok(AccountType::Asset),
-        "LIABILITY" | "LIABILITIES" | "L" => Ok(AccountType::Liability),
-        "EQUITY" | "E" => Ok(AccountType::Equity),
-        "REVENUE" | "INCOME" | "R" | "I" => Ok(AccountType::Revenue),
-        "EXPENSE" | "EXPENSES" | "X" => Ok(AccountType::Expense),
-        "OTHER_INCOME" | "OTHER INCOME" => Ok(AccountType::OtherIncome),
-        "OTHER_EXPENSE" | "OTHER EXPENSE" => Ok(AccountType::OtherExpense),
-        other => Err(AppError::Other(format!("Unknown account type: {other}"))),
-    }
 }

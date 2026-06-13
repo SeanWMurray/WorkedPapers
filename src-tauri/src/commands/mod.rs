@@ -1,6 +1,7 @@
 pub mod aje;
 pub mod archive;
 pub mod engagement;
+pub mod files;
 pub mod leadsheet;
 pub mod mapping;
 pub mod reports;

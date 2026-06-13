@@ -2,20 +2,20 @@ use crate::error::{AppError, Result};
 use crate::models::AppSettings;
 use std::fs;
 use std::path::PathBuf;
-use tauri::api::path::app_data_dir;
-use tauri::{Config, State};
 
-fn settings_path(config: &Config) -> PathBuf {
-    app_data_dir(config)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("settings.json")
+fn settings_path() -> PathBuf {
+    // Store next to the binary in dev; use app data dir in release via env var override
+    let base = std::env::var("APPDATA")
+        .or_else(|_| std::env::var("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+
+    base.join("WorkedPapers").join("settings.json")
 }
 
 #[tauri::command]
-pub async fn get_settings(
-    config: tauri::State<'_, std::sync::Arc<Config>>,
-) -> std::result::Result<AppSettings, AppError> {
-    let path = settings_path(&config);
+pub async fn get_settings() -> std::result::Result<AppSettings, AppError> {
+    let path = settings_path();
     if !path.exists() {
         return Ok(AppSettings::default());
     }
@@ -25,11 +25,8 @@ pub async fn get_settings(
 }
 
 #[tauri::command]
-pub async fn save_settings(
-    settings: AppSettings,
-    config: tauri::State<'_, std::sync::Arc<Config>>,
-) -> std::result::Result<(), AppError> {
-    let path = settings_path(&config);
+pub async fn save_settings(settings: AppSettings) -> std::result::Result<(), AppError> {
+    let path = settings_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

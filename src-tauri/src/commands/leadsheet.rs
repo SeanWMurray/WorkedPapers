@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use crate::models::{Leadsheet, Tickmark, TbAccount, AjeLine, AccountType, Signoff, SignoffRole};
+use crate::models::{Leadsheet, Tickmark, TbAccount, AjeLine, Signoff, SignoffRole};
 use crate::AppState;
 use chrono::Utc;
 use rusqlite::params;
@@ -24,7 +24,7 @@ pub async fn get_leadsheet(
     // Resolve accounts in scope
     let accounts: Vec<TbAccount> = if let Some(ref map) = query.map_number {
         let mut stmt = db.conn.prepare(
-            "SELECT id, account_number, account_name, account_type, current_balance, prior_balance, map_number, notes
+            "SELECT id, account_number, account_name, current_balance, prior_balance, map_number, notes
              FROM tb_accounts WHERE map_number = ?1 ORDER BY account_number",
         )?;
         let rows = stmt.query_map(params![map], |r| {
@@ -32,19 +32,18 @@ pub async fn get_leadsheet(
                 id: r.get(0)?,
                 account_number: r.get(1)?,
                 account_name: r.get(2)?,
-                account_type: AccountType::Asset,
-                current_balance: r.get(4)?,
-                prior_balance: r.get(5)?,
-                map_number: r.get(6)?,
+                current_balance: r.get(3)?,
+                prior_balance: r.get(4)?,
+                map_number: r.get(5)?,
                 grouping_ids: vec![],
-                notes: r.get(7)?,
+                notes: r.get(6)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
         rows
     } else if let Some(gid) = query.grouping_id {
         let mut stmt = db.conn.prepare(
-            "SELECT a.id, a.account_number, a.account_name, a.account_type, a.current_balance, a.prior_balance, a.map_number, a.notes
+            "SELECT a.id, a.account_number, a.account_name, a.current_balance, a.prior_balance, a.map_number, a.notes
              FROM tb_accounts a
              JOIN account_groupings ag ON ag.account_id = a.id
              WHERE ag.grouping_id = ?1 ORDER BY a.account_number",
@@ -54,12 +53,11 @@ pub async fn get_leadsheet(
                 id: r.get(0)?,
                 account_number: r.get(1)?,
                 account_name: r.get(2)?,
-                account_type: AccountType::Asset,
-                current_balance: r.get(4)?,
-                prior_balance: r.get(5)?,
-                map_number: r.get(6)?,
+                current_balance: r.get(3)?,
+                prior_balance: r.get(4)?,
+                map_number: r.get(5)?,
                 grouping_ids: vec![gid],
-                notes: r.get(7)?,
+                notes: r.get(6)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;

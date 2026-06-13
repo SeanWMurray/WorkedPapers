@@ -22,7 +22,6 @@ pub struct TbAccount {
     pub id: i64,
     pub account_number: String,
     pub account_name: String,
-    pub account_type: AccountType,
     pub current_balance: f64,
     pub prior_balance: f64,
     pub map_number: Option<String>,
@@ -30,26 +29,10 @@ pub struct TbAccount {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum AccountType {
-    Asset,
-    Liability,
-    Equity,
-    Revenue,
-    Expense,
-    OtherIncome,
-    OtherExpense,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TbSummary {
-    pub total_assets: f64,
-    pub total_liabilities: f64,
-    pub total_equity: f64,
-    pub total_revenue: f64,
-    pub total_expenses: f64,
-    pub net_income: f64,
+    pub total_debits: f64,
+    pub total_credits: f64,
     pub is_balanced: bool,
 }
 

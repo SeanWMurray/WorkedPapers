@@ -1,8 +1,10 @@
 # Worked Papers
 
-A modern, lightning-fast desktop application for accounting firms — a purpose-built alternative to Caseware Working Papers.
+A modern, lightning-fast desktop application for accounting firms — a purpose-built alternative to other working paper softwares.
 
 Built with **Tauri** (Rust backend) + **React** (TypeScript frontend) + **SQLite** (local data store).
+
+Send me a message if you need help implementing this
 
 ---
 

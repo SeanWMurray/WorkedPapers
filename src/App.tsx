@@ -11,16 +11,24 @@ import AjePage from "@/pages/AjePage";
 import LeadsheetPage from "@/pages/LeadsheetPage";
 import MappingPage from "@/pages/MappingPage";
 import ReportsPage from "@/pages/ReportsPage";
+import FilesPage from "@/pages/FilesPage";
 import AuditPage from "@/pages/AuditPage";
 import SettingsPage from "@/pages/SettingsPage";
 
 export default function App() {
   const [engagement] = useAtom(engagementAtom);
-  const setSettings = useSetAtom(settingsAtom);
+  const [settings, setSettings] = useAtom(settingsAtom);
 
   useEffect(() => {
-    getSettings().then(setSettings).catch(() => {});
+    getSettings().then((s) => {
+      setSettings(s);
+      document.documentElement.setAttribute("data-theme", s.theme);
+    }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", settings.theme);
+  }, [settings.theme]);
 
   return (
     <HashRouter>
@@ -35,6 +43,7 @@ export default function App() {
             <Route path="/leadsheet" element={<LeadsheetPage />} />
             <Route path="/mapping" element={<MappingPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/files" element={<FilesPage />} />
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/tb" replace />} />

@@ -35,3 +35,6 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Test data (real client files, never commit)
+testdata/

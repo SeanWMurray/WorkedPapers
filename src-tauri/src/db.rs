@@ -50,11 +50,13 @@ impl AppDb {
 
         if version < 1 {
             self.conn.execute_batch(include_str!("../migrations/001_initial.sql"))?;
-            self.conn
-                .execute("INSERT INTO schema_version (version) VALUES (1)", [])?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])?;
         }
 
-        // Future: if version < 2 { ... }
+        if version < 2 {
+            self.conn.execute_batch(include_str!("../migrations/002_drop_account_type.sql"))?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (2)", [])?;
+        }
 
         Ok(())
     }

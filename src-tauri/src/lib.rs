@@ -51,6 +51,11 @@ pub fn run() {
             commands::signoff::get_audit_trail,
             // Reports
             commands::reports::render_report_data,
+            // File attachments
+            commands::files::list_attachments,
+            commands::files::attach_file,
+            commands::files::remove_attachment,
+            commands::files::open_attachment,
             // Archive (.wwp)
             commands::archive::export_wwp,
             commands::archive::import_wwp,

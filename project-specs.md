@@ -4,88 +4,119 @@
 **Objective:** Develop a lightning-fast, highly efficient desktop and self-hosted server application for accounting firms, serving as a modern alternative to legacy systems like Caseware Working Papers and SmartSync.
 **Core Philosophy:** Prioritize absolute speed, programmatic flexibility, and a strictly minimalist, flat user interface to reduce cognitive load. The system must eliminate legacy bloat while retaining rigorous accounting compliance mechanics.
 
-## 2. Proposed Tech Stack Architecture
-*(AI Model: Please validate and adapt these recommendations based on optimal performance)*
-* **Desktop Client:** Tauri (Rust backend for near-native file system speed) + React or Vue (TypeScript) for the frontend.
-* **Local Data Store:** SQLite (highly portable, single-file capability, excellent for local desktop client data).
-* **Self-Hosted Server:** Dockerized Go or Node.js environment (for ease of deployment on firm hardware) with PostgreSQL.
-* **Reporting Engine:** Headless browser rendering (Puppeteer/Playwright) or a dedicated HTML/PDF rendering engine.
+## 2. Tech Stack (Decided & Implemented)
+* **Desktop Client:** Tauri 1.x (Rust backend) + React 18 (TypeScript) + Vite
+* **Local Data Store:** SQLite via `rusqlite` (bundled, no external install), WAL mode enabled; schema versioned with numbered migration files (`001_initial.sql`, `002_drop_account_type.sql`, …)
+* **State Management:** Jotai (atomic — no global re-renders)
+* **Virtual Scrolling:** `react-window` `FixedSizeList` for TB grid
+* **CSV Parsing:** PapaParse runs in the browser (main thread), column mapping handled by `TbImportWizard`, mapped rows sent to Rust via IPC in a single transaction
+* **Encryption:** AES-256-GCM for `.wwp` archives, SHA-256 for engagement seal hash
+* **File Attachment:** `opener` crate for system-default open; files stored alongside the engagement `.db` on disk
+* **Settings Persistence:** JSON settings file managed by Rust (`settings.rs`); includes `recent_files` list (max 8), user name/initials, theme
+* **Self-Hosted Server:** Planned — Dockerized backend with PostgreSQL (Phase 4)
+* **Reporting Engine:** HTML/CSS rendered in Web Worker, PDF export planned (Phase 2)
 
 ## 3. Core Feature Requirements
 
 ### 3.1. Native File Management & Archiving
-* **Direct Directory Mirroring:** All engagement files must physically reside on the local disk in the designated directory. The app's file manager is a fast UI layered over the actual OS file system, not a database of links (unless explicitly specified as a shortcut).
-* **Single-File Compression & Sharing:** Implement a robust backup/export utility that compresses the entire engagement directory (database + attachments) into a single, proprietary, encrypted file extension for easy offline sharing between staff.
+* **Direct Directory Mirroring:** Each engagement is a self-contained `.db` file the user saves anywhere on disk. No rigid directory structure enforced.
+* **File Attachment Panel:** ✅ **Implemented** — `FilesPage` lists all non-DB files in the engagement directory. Supports drag-and-drop (Tauri `onFileDropEvent`) and file-picker attach. Files are copied into the engagement directory with collision-safe naming. Double-click or "Open" launches with the system default application (`opener` crate). Delete is guarded to the engagement directory only. Locked engagements suppress the delete button.
+* **Single-File Compression & Sharing:** ✅ **Implemented** — `.wwp` export compresses the engagement directory into an AES-256-GCM encrypted ZIP. Password set by user at export time. Magic bytes `WWP1` for format versioning. Import decrypts and extracts back to a user-chosen directory.
 
 ### 3.2. Trial Balance, Mapping, & AJEs
-* **TB Import & Management:** Fast CSV/Excel ingestion mapping source accounts to the internal structure.
-* **Mapping & Groupings:** A flexible, hierarchical structure. Users can assign account numbers to standard map numbers, and concurrently assign them to custom groupings (functioning as parallel mapping structures).
-* **Adjusting Journal Entries (AJEs):** A dedicated, high-speed ledger for proposing and posting Adjusting, Reclassifying, and Tax entries. These entries must dynamically and instantly flow into the mapped trial balance and all downstream reports.
+* **TB Import & Management:** ✅ **Implemented** — CSV import via file dialog. PapaParse parses the raw CSV in the browser. A column-mapping wizard (`TbImportWizard`) auto-guesses field assignments (account number, name, debit, credit, signed balance, prior balance, ignore) with per-column override dropdowns and a live preview of the first 5 rows. Confirmed rows sent to Rust in one IPC call, inserted in a single SQLite transaction (clears existing accounts first). Virtualized grid (`react-window`) renders thousands of rows without DOM overhead. TB summary bar shows total debits, total credits, and net with a BALANCED / OUT OF BALANCE badge.
+* **Mapping & Groupings:** ✅ **Implemented** — Hierarchical map numbers (code, label, parent, sort order, FS line tag). Parallel custom groupings with color labels. Many-to-many account↔grouping assignments. Both structures visible in Mapping page with add/edit UI.
+* **Adjusting Journal Entries (AJEs):** ✅ **Implemented** — Dedicated AJE ledger supporting Adjusting (AJE), Reclassifying (RJE), and Tax (TJE) entry types. Auto-numbered per type. Debit/credit balance validation before posting. Void (never delete) with reason logging. AJE impact flows dynamically into TB balances and report totals via SQL join. All writes in single transactions.
 
 ### 3.3. Year-End Roll-Forward & Data Retention
-* **Historical Storage:** The system must seamlessly support up to 5 years of historical data within an entity's ecosystem.
-* **File Separation:** The year-end close process must generate a **brand new, distinct file/directory** for the upcoming year. The prior year's file must remain completely unchanged and safely archived.
-* **Roll-Forward Mechanics:** The system must automatically shift ending balances to prior-year balances, clear current-year P&L accounts, and retain all established mapping, groupings, and persistent leadsheets.
+* **Historical Storage:** Each year is a separate `.db` file — open any prior year independently at any time.
+* **File Separation:** ✅ **Implemented** — Roll-forward creates a brand-new `.db` at a user-chosen path. Source file is never touched.
+* **Roll-Forward Mechanics:** ✅ **Implemented** — Runs on a Rayon background thread. Balance sheet ending balances (post-AJE) become prior-year balances. P&L accounts zeroed. Map numbers, groupings, leadsheet notes, and custom variables all carry forward. AJEs do not carry forward (they belong to the closed year).
 
 ### 3.4. Programmatic Financial Statements & Reporting
-* **HTML/CSS Foundation:** Diverging from rigid legacy text editors, custom financial statements and reports will be rendered using HTML/CSS. This allows for deep programmatic editing and AI interaction.
-* **Dynamic Linking:** The reporting engine must seamlessly pull map number totals, current/prior year balances, custom variables, and entity metadata directly from the SQLite database into the DOM.
-* **Automated Note Referencing:** Custom processing logic to automatically link and re-number Financial Statement notes to their corresponding balances.
-* **Export:** High-fidelity HTML-to-PDF rendering for final print.
+* **HTML/CSS Foundation:** ✅ **Implemented (skeleton)** — Report data assembled by Rust (map totals, custom vars, engagement meta) and handed to a Web Worker that generates HTML/CSS output.
+* **Dynamic Linking:** ✅ **Implemented** — Map number totals (unadjusted and AJE-adjusted), prior year, and custom variables all pulled from SQLite and embedded in report output.
+* **Automated Note Referencing:** *(TODO — Phase 2)*
+* **Export:** *(TODO — Phase 2, PDF via headless renderer)*
 
 ### 3.5. Audit Mechanics & Workflow
-* **Leadsheets & Documents:** Customizable views displaying specific groupings, mapped accounts, and their underlying AJEs.
-* **Tickmarks & Cross-Referencing:** A fast visual system to drop standard/custom tickmarks. Crucially, a deep-linking architecture that allows a user to click a balance on the financial statement and instantly jump back to the supporting leadsheet or source PDF.
-* **Role-Based Sign-offs & Lockdown:** Implement multi-level sign-offs (Prepared, Reviewed, Partner). Engaging a final lockdown state on a file must cryptographically seal it, preventing further edits without authorized logging.
-* **Immutable Audit Trail:** Background logging of all critical actions (file additions, AJE postings, map changes, sign-offs) with user IDs and timestamps.
+* **Leadsheets & Documents:** ✅ **Implemented** — Leadsheet page shows accounts and AJE lines scoped by map number or grouping. Persistent notes per leadsheet saved to DB. Select from sidebar to open.
+* **Tickmarks & Cross-Referencing:** ✅ **Implemented (backend)** — Tickmark data model and Rust commands complete. UI drop/remove *(TODO — Phase 3 full UI)*. Deep-linking from report to leadsheet *(TODO — Phase 3)*.
+* **Role-Based Sign-offs & Lockdown:** ✅ **Implemented** — Three-level sign-offs (Preparer, Reviewer, Partner) per leadsheet scope. Engagement lock sets a SHA-256 seal hash stored in DB. All Rust write commands check `is_locked` and return `EngagementLocked` error if set.
+* **Immutable Audit Trail:** ✅ **Implemented** — `audit_trail` table is append-only (no deletes, no updates). Every AJE post/void, sign-off, lock, TB import, and roll-forward writes a row with action, entity, performer, timestamp, and JSON detail blob. Viewable in Audit Trail page.
 
 ### 3.6. Server & Version Management (Sync)
-* **Self-Hosted Architecture:** Provide a streamlined Docker-compose package for accounting firm IT departments to deploy on their own local servers.
-* **Smart Syncing:** A conflict-resolution engine that manages delta-syncs between the local Tauri client and the self-hosted server, ensuring offline work is seamlessly merged when reconnected.
+* **Self-Hosted Architecture:** *(TODO — Phase 4)*
+* **Smart Syncing:** *(TODO — Phase 4)*
 
 ## 4. UI/UX Design Directives
-**Mandate for AI Developer:** The interface must strictly adhere to a modern, minimalist design paradigm.
-* **Visual Style:** Flat, simple, heavily bordered data grids. Avoid drop shadows, excessive gradients, or visual clutter. Utilize a predominantly black, white, and high-contrast monochrome palette to keep the focus entirely on the data.
-* **Navigation:** Keyboard-first design. Implement command palettes (e.g., `Cmd+K`) to jump between leadsheets, post AJEs, or open settings instantly without using the mouse.
-* **Information Density:** High utility, low distraction.
+* **Visual Style:** ✅ **Implemented** — Flat, bordered data grids. No drop shadows or gradients. Black/white monochrome palette with dark mode token support. CSS custom properties for full theme switching.
+* **Navigation:** ✅ **Implemented** — `Ctrl+K` / `Cmd+K` command palette with fuzzy search, keyboard arrow navigation, and Enter to execute. Sidebar with section grouping.
+* **Information Density:** High-density monospace grids for all financial data. Summary bars for at-a-glance totals.
 
 ## 5. Performance & Optimization Architecture
-**Mandate for AI Developer:** Speed is the primary differentiator of this product. The following architectural patterns MUST be implemented to ensure instant data rendering and zero UI blocking.
 
-### 5.1. Database Optimization (SQLite)
-* **WAL Mode:** Enable Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) on the local SQLite databases to allow concurrent reads and writes, preventing UI freezes during background saves.
-* **Transaction Batching:** All Trial Balance imports, AJE mass-postings, and Roll-Forward mechanics MUST be wrapped in single transactions (`BEGIN TRANSACTION; ... COMMIT;`).
-* **Prepared Statements:** Cache prepared statements for frequently used queries, particularly for fetching dynamically linked variables in financial statements.
+### 5.1. Database Optimization (SQLite) — ✅ Implemented
+* WAL mode: `PRAGMA journal_mode=WAL`
+* `PRAGMA synchronous=NORMAL` and 32MB page cache
+* All bulk writes (TB import, roll-forward) in single transactions
+* Indexes on all foreign keys and frequently filtered columns
+* Schema-versioned migration system for future upgrades
 
-### 5.2. Backend Threading (Rust / Tauri Engine)
-* **Offload Heavy Computation:** The JavaScript frontend must NEVER block on data processing. Heavy tasks—such as mapping logic computations, rolling forward databases, and parsing massive CSV files—must be executed on background Rust threads.
-* **Zero-Copy Serialization:** Utilize efficient data passing (e.g., `serde` in Rust) to hand off large data sets to the frontend without heavy memory duplication.
+### 5.2. Backend Threading (Rust / Tauri Engine) — ✅ Implemented
+* Rayon global thread pool (4 threads) initialised at startup
+* Roll-forward runs entirely on Rayon thread — UI never blocks
+* All domain types serialized with `serde` across the IPC bridge
+* `AppError` implements `Serialize` for clean IPC error propagation
 
-### 5.3. Frontend Rendering Efficiency (React/Vue)
-* **DOM Virtualization:** Trial balances, leadsheets, and AJE lists often contain thousands of rows. The UI must utilize virtual scrolling (e.g., `react-window` or `vue-virtual-scroller`) to only render the DOM nodes visible on the screen.
-* **Strict DOM Minimalism:** Align the HTML structure with the flat, simple, bordered visual identity. Avoid deeply nested `div` structures; fewer DOM nodes result in faster repaint and reflow times when grouping variables change.
-* **Atomic State Management:** Use lightweight, atomic state management (like Jotai, Zustand, or Vue Composition API) to prevent global re-renders when a single cell in a leadsheet is updated.
+### 5.3. Frontend Rendering Efficiency — ✅ Implemented
+* `react-window` `FixedSizeList` for TB grid — only visible rows rendered
+* Jotai atoms: engagement, accounts, AJEs, map numbers, groupings each independent — no cascading re-renders
+* CSS custom properties design system — theme switch touches zero JS
+* PapaParse CSV parsing + `TbImportWizard` column mapper run in the browser before the IPC call — no Web Worker needed at current volumes
+* Web Worker for report HTML generation (off main thread)
 
 ### 5.4. Network & Sync Performance
-* **Delta-Syncing:** The SmartSync alternative must not push the entire SQLite database to the server. It must compute diffs/deltas locally and only push modified records or file binaries to the PostgreSQL server.
-* **Web Workers for Reports:** When generating the HTML/CSS for custom financial statements, process the data linking and DOM string generation in a Web Worker to keep the main application thread smooth and responsive.
+* Delta-syncing: *(TODO — Phase 4)*
+* Web Workers for reports: ✅ Implemented
 
 ## 6. Development Roadmap
 
-* **Phase 1: Local Foundation (MVP)**
-    * Setup Tauri/SQLite architecture with WAL mode and background threading.
-    * Build native file manager syncing.
-    * Implement basic TB import, mapping logic, and manual AJE entry.
+* **Phase 1: Local Foundation (MVP)** — ✅ Complete
+    * ✅ Tauri/SQLite architecture with WAL mode, transactions, background threading
+    * ✅ Engagement create/open/close with metadata
+    * ✅ TB import (CSV → PapaParse → column-mapping wizard → Rust transaction), virtualized grid, summary bar
+    * ✅ AJE/RJE/TJE entry, auto-numbering, void, balance validation, dynamic impact
+    * ✅ Map numbers (hierarchical) and custom groupings
+    * ✅ Leadsheets scoped by map number or grouping, with persistent notes
+    * ✅ Three-level sign-offs, engagement lock with cryptographic seal
+    * ✅ Immutable audit trail
+    * ✅ Year-end roll-forward (Rayon thread, new file, P&L zero, BS carry-forward)
+    * ✅ `.wwp` export/import (AES-256-GCM encrypted ZIP)
+    * ✅ Command palette (`Ctrl+K`), flat/monochrome design system, dark mode tokens
+    * ✅ File attachment panel (copy files into engagement directory, drag-and-drop, system-open, delete)
+    * ✅ Recent files list on welcome screen (persisted in settings JSON, max 8, removable)
+
 * **Phase 2: The Reporting Engine**
-    * Develop the HTML/CSS dynamic rendering system using Web Workers.
-    * Build the tagging/linking system for mapping numbers to report variables.
-    * PDF export functionality.
-* **Phase 3: Audit Mechanics & Roll-Forward**
-    * Implement tickmarks, cross-referencing, and multi-level sign-offs.
-    * Build the Year-End Roll-Forward logic (ensuring the new-file separation mandate) in Rust to guarantee sub-second execution.
+    * Develop full HTML/CSS financial statement templates (BS, IS, CF, equity)
+    * FS note auto-numbering and cross-referencing
+    * Custom variable editor UI
+    * PDF export via headless renderer (Puppeteer/Playwright or `wkhtmltopdf`)
+
+* **Phase 3: Audit Mechanics & Workflow Polish**
+    * Tickmark drop UI on leadsheet rows with symbol picker
+    * Deep-link: click a balance on a report → jump to the supporting leadsheet
+    * Cross-reference tags between documents
+    * Full tickmark and sign-off UI pass
+
 * **Phase 4: Server & Sync Integration**
-    * Develop the self-hosted Docker backend.
-    * Implement delta-syncing and conflict resolution between desktop clients and the server.
+    * Self-hosted Docker backend (Go or Node.js + PostgreSQL)
+    * Delta-sync engine: compute local diffs, push only changed records
+    * Conflict resolution UI for offline merge
+    * Multi-user awareness (who has a file open)
+
 * **Phase 5: Refinement & AI Integration Hooks**
-    * Finalize keyboard shortcuts, UI polish (flat/minimalist pass).
-    * Expose endpoints/API structures within the app for future AI agents to read TB data and auto-draft HTML statement notes.
+    * Keyboard shortcut customisation
+    * Full UI/UX polish pass
+    * REST/IPC endpoints for AI agents to read TB data, map totals, and engagement metadata
+    * Auto-draft financial statement notes from TB data via LLM integration

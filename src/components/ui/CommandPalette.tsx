@@ -24,6 +24,7 @@ export default function CommandPalette({ onClose }: Props) {
     { label: "Leadsheets", description: "Open a leadsheet", action: () => navigate("/leadsheet") },
     { label: "Mapping", description: "Manage map numbers & groupings", action: () => navigate("/mapping") },
     { label: "Reports", description: "Generate financial statements", action: () => navigate("/reports") },
+    { label: "Files", description: "Manage engagement attachments", action: () => navigate("/files") },
     { label: "Audit Trail", description: "View immutable action log", action: () => navigate("/audit") },
     { label: "Settings", description: "User & app preferences", action: () => navigate("/settings") },
   ];

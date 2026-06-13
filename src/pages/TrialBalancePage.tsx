@@ -2,14 +2,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useAtom } from "jotai";
 import { tbAccountsAtom, engagementAtom } from "@/store/atoms";
 import { getTbAccounts, getTbSummary, importTbCsv, open } from "@/lib/tauri";
+import { readTextFile } from "@tauri-apps/api/fs";
 import { formatAccounting } from "@/lib/format";
 import { FixedSizeList as List } from "react-window";
+import Papa from "papaparse";
+import TbImportWizard, { type ImportRow } from "@/components/ui/TbImportWizard";
 import type { TbAccount, TbSummary } from "@/types";
-
-// CSV parsing happens in a Web Worker to keep the main thread free
-const tbWorker = new Worker(new URL("@/workers/tbParser.worker.ts", import.meta.url), {
-  type: "module",
-});
 
 export default function TrialBalancePage() {
   const [accounts, setAccounts] = useAtom(tbAccountsAtom);
@@ -17,6 +15,12 @@ export default function TrialBalancePage() {
   const [summary, setSummary] = useState<TbSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Wizard state
+  const [wizardData, setWizardData] = useState<{
+    headers: string[];
+    rows: string[][];
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     const [accts, sum] = await Promise.all([getTbAccounts(), getTbSummary()]);
@@ -36,39 +40,64 @@ export default function TrialBalancePage() {
       });
       if (!selected || Array.isArray(selected)) return;
 
-      setLoading(true);
       setError(null);
+      const raw = await readTextFile(selected);
 
-      // Offload CSV parsing to Web Worker
-      tbWorker.postMessage({ type: "PARSE_CSV", path: selected });
-      tbWorker.onmessage = async (e) => {
-        if (e.data.type === "PARSED") {
-          await importTbCsv(e.data.rows);
-          await refresh();
-          setLoading(false);
-        } else if (e.data.type === "ERROR") {
-          setError(e.data.error);
-          setLoading(false);
-        }
-      };
+      // Parse into raw rows — wizard handles mapping
+      const result = Papa.parse<string[]>(raw, {
+        header: false,
+        skipEmptyLines: true,
+      });
+
+      if (result.errors.length) {
+        setError(result.errors[0].message);
+        return;
+      }
+
+      const [headerRow, ...dataRows] = result.data as string[][];
+      setWizardData({ headers: headerRow, rows: dataRows });
     } catch (e) {
       setError(String(e));
+    }
+  };
+
+  const handleWizardConfirm = async (rows: ImportRow[]) => {
+    setWizardData(null);
+    setLoading(true);
+    setError(null);
+    try {
+      await importTbCsv(rows);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
       setLoading(false);
     }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {wizardData && (
+        <TbImportWizard
+          headers={wizardData.headers}
+          rows={wizardData.rows}
+          onConfirm={handleWizardConfirm}
+          onCancel={() => setWizardData(null)}
+        />
+      )}
+
       <div className="page-header">
         <span className="page-header__title">Trial Balance</span>
         {summary && (
-          <span
-            className={`badge ${summary.is_balanced ? "badge-open" : "badge-locked"}`}
-          >
+          <span className={`badge ${summary.is_balanced ? "badge-open" : "badge-locked"}`}>
             {summary.is_balanced ? "BALANCED" : "OUT OF BALANCE"}
           </span>
         )}
-        <button className="btn btn-sm" onClick={handleImport} disabled={loading || !!engagement?.is_locked}>
+        <button
+          className="btn btn-sm"
+          onClick={handleImport}
+          disabled={loading || !!engagement?.is_locked}
+        >
           {loading ? "Importing…" : "Import CSV"}
         </button>
       </div>
@@ -108,15 +137,6 @@ export default function TrialBalancePage() {
 // ── Summary bar ───────────────────────────────────────────────────────────────
 
 function TbSummaryBar({ summary, currency }: { summary: TbSummary; currency: string }) {
-  const items = [
-    { label: "Assets", value: summary.total_assets },
-    { label: "Liabilities", value: summary.total_liabilities },
-    { label: "Equity", value: summary.total_equity },
-    { label: "Revenue", value: summary.total_revenue },
-    { label: "Expenses", value: summary.total_expenses },
-    { label: "Net Income", value: summary.net_income, bold: true },
-  ];
-
   return (
     <div
       style={{
@@ -129,12 +149,21 @@ function TbSummaryBar({ summary, currency }: { summary: TbSummary; currency: str
         flexShrink: 0,
       }}
     >
-      {items.map(({ label, value, bold }) => (
+      {[
+        { label: "Total Debits",  value: summary.total_debits },
+        { label: "Total Credits", value: summary.total_credits },
+        { label: "Net",           value: summary.total_debits + summary.total_credits, bold: true },
+      ].map(({ label, value, bold }) => (
         <div key={label} style={{ display: "flex", flexDirection: "column", gap: 1 }}>
           <span style={{ color: "var(--color-text-muted)", fontSize: 10, textTransform: "uppercase" }}>
             {label}
           </span>
-          <span style={{ fontWeight: bold ? 700 : 400, color: value < 0 ? "var(--color-danger)" : undefined }}>
+          <span
+            style={{
+              fontWeight: bold ? 700 : 400,
+              color: value < 0 ? "var(--color-danger)" : undefined,
+            }}
+          >
             {formatAccounting(value, currency)}
           </span>
         </div>
@@ -145,8 +174,7 @@ function TbSummaryBar({ summary, currency }: { summary: TbSummary; currency: str
 
 // ── Virtualized grid ──────────────────────────────────────────────────────────
 
-const COL_WIDTHS = { num: 90, name: 320, type: 100, current: 130, prior: 130, map: 80 };
-const TOTAL_WIDTH = Object.values(COL_WIDTHS).reduce((a, b) => a + b, 0);
+const COL_WIDTHS = { num: 90, name: 420, current: 130, prior: 130, map: 80 };
 
 function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,7 +203,6 @@ function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency
       >
         <Cell w={COL_WIDTHS.num}>{a.account_number}</Cell>
         <Cell w={COL_WIDTHS.name}>{a.account_name}</Cell>
-        <Cell w={COL_WIDTHS.type} muted>{a.account_type}</Cell>
         <Cell w={COL_WIDTHS.current} right negative={a.current_balance < 0}>
           {formatAccounting(a.current_balance, currency)}
         </Cell>
@@ -189,7 +216,6 @@ function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Sticky header */}
       <div
         style={{
           display: "flex",
@@ -204,19 +230,13 @@ function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency
       >
         <Cell w={COL_WIDTHS.num}>Account #</Cell>
         <Cell w={COL_WIDTHS.name}>Name</Cell>
-        <Cell w={COL_WIDTHS.type}>Type</Cell>
         <Cell w={COL_WIDTHS.current} right>Current (adj)</Cell>
         <Cell w={COL_WIDTHS.prior} right>Prior Year</Cell>
         <Cell w={COL_WIDTHS.map}>Map</Cell>
       </div>
 
       <div ref={containerRef} style={{ flex: 1, overflow: "hidden" }}>
-        <List
-          height={height}
-          itemCount={accounts.length}
-          itemSize={32}
-          width="100%"
-        >
+        <List height={height} itemCount={accounts.length} itemSize={32} width="100%">
           {Row}
         </List>
       </div>
