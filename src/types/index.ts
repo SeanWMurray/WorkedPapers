@@ -142,6 +142,29 @@ export interface AttachedFile {
   ext: string;
 }
 
+export interface CabinetFolder {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  sort_order: number;
+}
+
+export interface CabinetItem {
+  id: number;
+  folder_id: number | null;
+  kind: "file" | "leadsheet";
+  display_name: string;
+  file_path: string | null;
+  leadsheet_scope: string | null;
+  sort_order: number;
+}
+
+export interface CabinetTree {
+  folders: CabinetFolder[];
+  items: CabinetItem[];
+  disk_files: AttachedFile[];
+}
+
 export interface AuditEntry {
   id: number;
   action: string;

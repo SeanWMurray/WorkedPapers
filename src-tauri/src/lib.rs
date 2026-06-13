@@ -51,11 +51,20 @@ pub fn run() {
             commands::signoff::get_audit_trail,
             // Reports
             commands::reports::render_report_data,
-            // File attachments
+            // File attachments (legacy flat)
             commands::files::list_attachments,
             commands::files::attach_file,
             commands::files::remove_attachment,
             commands::files::open_attachment,
+            // File cabinet (virtual folder tree)
+            commands::files::get_cabinet,
+            commands::files::create_folder,
+            commands::files::rename_folder,
+            commands::files::delete_folder,
+            commands::files::upsert_cabinet_item,
+            commands::files::delete_cabinet_item,
+            commands::files::move_cabinet_item,
+            commands::files::move_cabinet_folder,
             // Archive (.wwp)
             commands::archive::export_wwp,
             commands::archive::import_wwp,

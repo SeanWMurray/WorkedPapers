@@ -6,6 +6,9 @@ import type {
   AppSettings,
   AttachedFile,
   AuditEntry,
+  CabinetFolder,
+  CabinetItem,
+  CabinetTree,
   EngagementMeta,
   Grouping,
   Leadsheet,
@@ -158,6 +161,37 @@ export const removeAttachment = (filePath: string) =>
 
 export const openAttachment = (filePath: string) =>
   invoke<void>("open_attachment", { filePath });
+
+// ─── File Cabinet ─────────────────────────────────────────────────────────────
+
+export const getCabinet = () => invoke<CabinetTree>("get_cabinet");
+
+export const createFolder = (name: string, parentId: number | null) =>
+  invoke<CabinetFolder>("create_folder", { name, parentId });
+
+export const renameFolder = (id: number, name: string) =>
+  invoke<void>("rename_folder", { id, name });
+
+export const deleteFolder = (id: number) =>
+  invoke<void>("delete_folder", { id });
+
+export const upsertCabinetItem = (payload: {
+  id?: number | null;
+  folder_id: number | null;
+  kind: "file" | "leadsheet";
+  display_name: string;
+  file_path?: string | null;
+  leadsheet_scope?: string | null;
+}) => invoke<CabinetItem>("upsert_cabinet_item", { payload });
+
+export const deleteCabinetItem = (id: number) =>
+  invoke<void>("delete_cabinet_item", { id });
+
+export const moveCabinetItem = (id: number, folderId: number | null, afterId: number | null) =>
+  invoke<void>("move_cabinet_item", { id, folderId, afterId });
+
+export const moveCabinetFolder = (id: number, parentId: number | null, afterId: number | null) =>
+  invoke<void>("move_cabinet_folder", { id, parentId, afterId });
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 

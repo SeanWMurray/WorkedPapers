@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAtom } from "jotai";
-import { mapNumbersAtom, groupingsAtom, settingsAtom, engagementAtom } from "@/store/atoms";
+import { mapNumbersAtom, groupingsAtom, settingsAtom, engagementAtom, activeLeadsheetAtom } from "@/store/atoms";
 import { getLeadsheet, saveLeadsheetNote, signOff } from "@/lib/tauri";
 import { formatAccounting } from "@/lib/format";
 import type { Leadsheet } from "@/types";
@@ -10,12 +10,21 @@ export default function LeadsheetPage() {
   const [groupings] = useAtom(groupingsAtom);
   const [settings] = useAtom(settingsAtom);
   const [engagement] = useAtom(engagementAtom);
+  const [activeLeadsheet, setActiveLeadsheet] = useAtom(activeLeadsheetAtom);
 
   const [query, setQuery] = useState<{ type: "map" | "group"; key: string } | null>(null);
   const [sheet, setSheet] = useState<Leadsheet | null>(null);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Consume a pending navigation request from the file cabinet
+  useEffect(() => {
+    if (!activeLeadsheet) return;
+    const { type, key } = activeLeadsheet;
+    setActiveLeadsheet(null);
+    open(type, String(key));
+  }, []); // intentionally runs once on mount only
 
   const open = useCallback(async (type: "map" | "group", key: string) => {
     setLoading(true);
