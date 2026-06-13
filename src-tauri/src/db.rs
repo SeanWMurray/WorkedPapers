@@ -73,6 +73,16 @@ impl AppDb {
             self.conn.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
         }
 
+        if version < 6 {
+            self.conn.execute_batch(include_str!("../migrations/006_map_enhancements.sql"))?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (6)", [])?;
+        }
+
+        if version < 7 {
+            self.conn.execute_batch(include_str!("../migrations/007_signoff_initials.sql"))?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (7)", [])?;
+        }
+
         Ok(())
     }
 

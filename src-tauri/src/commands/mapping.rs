@@ -12,6 +12,8 @@ pub struct UpsertMapPayload {
     pub parent_code: Option<String>,
     pub sort_order: i32,
     pub fs_line: Option<String>,
+    pub default_grouping_id: Option<i64>,
+    pub flip_map_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,7 +32,7 @@ pub async fn list_map_numbers(
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
 
     let mut stmt = db.conn.prepare_cached(
-        "SELECT code, label, parent_code, sort_order, fs_line
+        "SELECT code, label, parent_code, sort_order, fs_line, default_grouping_id, flip_map_code
          FROM map_numbers ORDER BY sort_order, code",
     )?;
 
@@ -42,6 +44,8 @@ pub async fn list_map_numbers(
                 parent_code: r.get(2)?,
                 sort_order: r.get(3)?,
                 fs_line: r.get(4)?,
+                default_grouping_id: r.get(5)?,
+                flip_map_code: r.get(6)?,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
@@ -58,19 +62,23 @@ pub async fn upsert_map_number(
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
 
     db.conn.execute(
-        "INSERT INTO map_numbers (code, label, parent_code, sort_order, fs_line)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO map_numbers (code, label, parent_code, sort_order, fs_line, default_grouping_id, flip_map_code)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT(code) DO UPDATE SET
-           label       = excluded.label,
-           parent_code = excluded.parent_code,
-           sort_order  = excluded.sort_order,
-           fs_line     = excluded.fs_line",
+           label               = excluded.label,
+           parent_code         = excluded.parent_code,
+           sort_order          = excluded.sort_order,
+           fs_line             = excluded.fs_line,
+           default_grouping_id = excluded.default_grouping_id,
+           flip_map_code       = excluded.flip_map_code",
         params![
             payload.code,
             payload.label,
             payload.parent_code,
             payload.sort_order,
             payload.fs_line,
+            payload.default_grouping_id,
+            payload.flip_map_code,
         ],
     )?;
 
@@ -126,6 +134,28 @@ pub async fn upsert_grouping(
 }
 
 #[tauri::command]
+pub async fn delete_grouping(
+    id: i64,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), AppError> {
+    let guard = state.db.lock().unwrap();
+    let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    db.conn.execute("DELETE FROM groupings WHERE id=?1", params![id])?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_map_number(
+    code: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), AppError> {
+    let guard = state.db.lock().unwrap();
+    let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    db.conn.execute("DELETE FROM map_numbers WHERE code=?1", params![code])?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn assign_grouping(
     account_number: String,
     grouping_id: i64,
@@ -135,7 +165,6 @@ pub async fn assign_grouping(
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
 
-    // Resolve account_id
     let account_id: i64 = db.conn.query_row(
         "SELECT id FROM tb_accounts WHERE account_number = ?1",
         params![account_number],

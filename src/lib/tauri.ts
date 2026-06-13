@@ -103,7 +103,15 @@ export const upsertMapNumber = (payload: {
   parent_code?: string | null;
   sort_order: number;
   fs_line?: string | null;
+  default_grouping_id?: number | null;
+  flip_map_code?: string | null;
 }) => invoke<void>("upsert_map_number", { payload });
+
+export const deleteMapNumber = (code: string) =>
+  invoke<void>("delete_map_number", { code });
+
+export const deleteGrouping = (id: number) =>
+  invoke<void>("delete_grouping", { id });
 
 export const listGroupings = () => invoke<Grouping[]>("list_groupings");
 
@@ -139,8 +147,11 @@ export const removeTickmark = (id: number) => invoke<void>("remove_tickmark", { 
 
 // ─── Sign-offs & Audit ────────────────────────────────────────────────────────
 
-export const signOff = (scope: string, role: string, signedBy: string) =>
-  invoke<number>("sign_off", { scope, role, signedBy });
+export const signOff = (scope: string, role: string, signedBy: string, signedInitials: string) =>
+  invoke<number>("sign_off", { scope, role, signedBy, signedInitials });
+
+export const removeSignoff = (id: number, removedBy: string) =>
+  invoke<void>("remove_signoff", { id, removedBy });
 
 export const getSignoffs = (scope?: string) =>
   invoke<Signoff[]>("get_signoffs", { scope: scope ?? null });

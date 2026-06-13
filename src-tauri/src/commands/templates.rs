@@ -499,6 +499,8 @@ struct CompositorCtx {
     pri_accts: HashMap<String, f64>,
     // Resolved statement line collections keyed by statement_id
     resolved_statements: HashMap<i64, Vec<ResolvedLine>>,
+    // Maps tag key ("balance_sheet") -> statement_id for kind-based embeds
+    stmt_kind_map: HashMap<String, i64>,
 }
 
 /// Scan a string for note_ref:/note_def: tags, registering keys in order.
@@ -724,34 +726,18 @@ fn dispatch_tag(tag: &str, ctx: &CompositorCtx) -> String {
 /// Render a structured statement as an HTML fragment.
 /// `ref_str` is e.g. "balance_sheet", "income_statement", or "id:42".
 fn render_statement_embed(ref_str: &str, ctx: &CompositorCtx) -> String {
-    // Resolve which statement to embed
     let resolved_lines: Option<&Vec<ResolvedLine>> = if let Some(id_str) = ref_str.strip_prefix("id:") {
         id_str.parse::<i64>().ok().and_then(|id| ctx.resolved_statements.get(&id))
     } else {
-        // Match by kind
-        let kind = match ref_str {
-            "balance_sheet"      => "BALANCE_SHEET",
-            "income_statement"   => "INCOME_STATEMENT",
-            "cash_flow"          => "CASH_FLOW",
-            "equity"             => "EQUITY",
-            other                => other,
-        };
-        ctx.resolved_statements.values().find(|lines| {
-            // We stored lines keyed by statement id; we need to look up the kind
-            // separately. For now fall through to the id-keyed lookup above.
-            // This path finds the first statement whose kind matches.
-            let _ = kind; // silence warning; kind matching is done in resolve step
-            false
-        }).or_else(|| {
-            // Fallback: use None if no match (resolved via kind in render_package)
-            None
-        })
+        ctx.stmt_kind_map
+            .get(ref_str)
+            .and_then(|id| ctx.resolved_statements.get(id))
     };
 
     if let Some(lines) = resolved_lines {
         render_statement_lines_html(lines, ctx)
     } else {
-        format!("[statement '{}' not found]", esc(ref_str))
+        format!("[statement '{}' not found — make sure a statement of that kind exists and is seeded]", esc(ref_str))
     }
 }
 
@@ -1099,6 +1085,7 @@ pub async fn render_package(
         cur_accts,
         pri_accts,
         resolved_statements: resolved_stmts,
+        stmt_kind_map,
     };
 
     // 8. PASS 2 — render fragments
@@ -1161,15 +1148,26 @@ pub async fn render_template(
 
     // Resolve all statements so {{statement:kind}} tags work
     let mut resolved_stmts: HashMap<i64, Vec<ResolvedLine>> = HashMap::new();
+    let mut stmt_kind_map: HashMap<String, i64> = HashMap::new();
     {
-        let mut stmt_list = db.conn.prepare("SELECT id FROM statements")?;
-        let ids: Vec<i64> = stmt_list.query_map([], |r| r.get(0))?
+        let mut stmt_list = db.conn.prepare("SELECT id, kind FROM statements")?;
+        let id_kinds: Vec<(i64, String)> = stmt_list.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<std::result::Result<_, _>>()?;
-        for sid in ids {
+        for (sid, skind) in id_kinds {
             let lines = resolve_statement_inline(
                 db, sid, &cur_maps, &pri_maps, &map_codes,
                 &cur_groups, &pri_groups, &cur_accts, &pri_accts, &vars,
             )?;
+            let tag_key = match skind.as_str() {
+                "BALANCE_SHEET"    => "balance_sheet",
+                "INCOME_STATEMENT" => "income_statement",
+                "CASH_FLOW"        => "cash_flow",
+                "EQUITY"           => "equity",
+                _                  => "",
+            };
+            if !tag_key.is_empty() {
+                stmt_kind_map.insert(tag_key.to_string(), sid);
+            }
             resolved_stmts.insert(sid, lines);
         }
     }
@@ -1192,6 +1190,7 @@ pub async fn render_template(
         cur_accts,
         pri_accts,
         resolved_statements: resolved_stmts,
+        stmt_kind_map,
     };
 
     Ok(expand_tags(&body_html, &ctx))
@@ -1272,8 +1271,11 @@ pub async fn seed_default_templates(
   <p>{{V:engagement_partner}}<br />{{V:firm_name}}</p>
 </div>"#;
 
+    let balance_sheet = include_str!("../../../doc-templates/balance-sheet.html");
+
     let templates = [
         ("Cover Page", "COVER", cover),
+        ("Balance Sheet", "FS_EMBED", balance_sheet),
         ("Notes to Financial Statements", "NOTES", notes_skeleton),
         ("Management Letter", "LETTER", mgmt_letter),
     ];

@@ -40,8 +40,10 @@ pub fn run() {
             // Mapping & Groupings
             commands::mapping::list_map_numbers,
             commands::mapping::upsert_map_number,
+            commands::mapping::delete_map_number,
             commands::mapping::list_groupings,
             commands::mapping::upsert_grouping,
+            commands::mapping::delete_grouping,
             commands::mapping::assign_grouping,
             // Leadsheets
             commands::leadsheet::get_leadsheet,
@@ -50,6 +52,7 @@ pub fn run() {
             commands::leadsheet::remove_tickmark,
             // Sign-offs & Audit Trail
             commands::signoff::sign_off,
+            commands::signoff::remove_signoff,
             commands::signoff::get_signoffs,
             commands::signoff::lock_engagement,
             commands::signoff::get_audit_trail,

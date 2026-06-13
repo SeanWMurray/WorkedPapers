@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAtom, useSetAtom } from "jotai";
-import { engagementAtom, activeLeadsheetAtom, mapNumbersAtom, groupingsAtom } from "@/store/atoms";
+import { engagementAtom, activeLeadsheetAtom, mapNumbersAtom, groupingsAtom, settingsAtom } from "@/store/atoms";
 import {
   getCabinet,
   createFolder,
@@ -17,9 +17,15 @@ import {
   open,
   listMapNumbers,
   listGroupings,
+  signOff,
+  removeSignoff,
+  getSignoffs,
 } from "@/lib/tauri";
 import { appWindow } from "@tauri-apps/api/window";
-import type { CabinetFolder, CabinetItem, CabinetTree, AttachedFile, MapNumber, Grouping } from "@/types";
+import type { CabinetFolder, CabinetItem, CabinetTree, AttachedFile, MapNumber, Grouping, Signoff, SignoffRole } from "@/types";
+
+const ROLES: SignoffRole[] = ["PREPARER", "REVIEWER", "PARTNER"];
+const ROLE_SHORT: Record<SignoffRole, string> = { PREPARER: "Prep", REVIEWER: "Rev", PARTNER: "Ptr" };
 
 // ── Constants & utils ─────────────────────────────────────────────────────────
 
@@ -230,6 +236,7 @@ function useCabinetDrag(
 
 export default function FilesPage() {
   const [engagement] = useAtom(engagementAtom);
+  const [settings] = useAtom(settingsAtom);
   const [mapNumbers, setMapNumbers] = useAtom(mapNumbersAtom);
   const [groupings, setGroupings] = useAtom(groupingsAtom);
   const setActiveLeadsheet = useSetAtom(activeLeadsheetAtom);
@@ -239,6 +246,7 @@ export default function FilesPage() {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const [osDragging, setOsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileSignoffs, setFileSignoffs] = useState<Record<string, Signoff[]>>({});
 
   // Inline editing
   const [renamingFolderId, setRenamingFolderId] = useState<number | null>(null);
@@ -261,6 +269,14 @@ export default function FilesPage() {
     try {
       const t = await getCabinet();
       setTree(t);
+      const all = await getSignoffs();
+      const byScope: Record<string, Signoff[]> = {};
+      for (const s of all) {
+        if (!s.scope.startsWith("file:")) continue;
+        if (!byScope[s.scope]) byScope[s.scope] = [];
+        byScope[s.scope].push(s);
+      }
+      setFileSignoffs(byScope);
     } catch (e) {
       setError(String(e));
     }
@@ -398,6 +414,18 @@ export default function FilesPage() {
     setLinkModal(null);
     setLinkScope("");
     setLinkName("");
+    await refresh();
+  };
+
+  const handleFileSignOff = async (item: CabinetItem, role: SignoffRole) => {
+    const scope = `file:${item.id}`;
+    const existing = fileSignoffs[scope] ?? [];
+    const myEntry = existing.find((s) => s.role === role && s.signed_by === settings.user_name);
+    if (myEntry) {
+      await removeSignoff(myEntry.id, settings.user_name);
+    } else {
+      await signOff(scope, role, settings.user_name, settings.user_initials);
+    }
     await refresh();
   };
 
@@ -564,6 +592,14 @@ export default function FilesPage() {
             }
             setCtxMenu(null);
           }}
+          onSignOff={(role) => {
+            if (ctxMenu.node.kind === "item") {
+              handleFileSignOff(ctxMenu.node.item, role);
+            }
+            setCtxMenu(null);
+          }}
+          fileSignoffs={ctxMenu.node.kind === "item" ? (fileSignoffs[`file:${ctxMenu.node.item.id}`] ?? []) : []}
+          currentUser={settings.user_name}
         />
       )}
 
@@ -609,7 +645,10 @@ export default function FilesPage() {
           position: "sticky", top: 0, zIndex: 1,
         }}>
           <span style={{ flex: 1 }}>Name</span>
-          <span style={{ width: 80, textAlign: "right" }}>Size</span>
+          {ROLES.map((r) => (
+            <span key={r} style={{ width: 36, textAlign: "center", marginLeft: 4 }}>{ROLE_SHORT[r]}</span>
+          ))}
+          <span style={{ width: 80, textAlign: "right", marginLeft: 12 }}>Size</span>
           <span style={{ width: 130, marginLeft: 16 }}>Modified</span>
         </div>
 
@@ -781,8 +820,29 @@ export default function FilesPage() {
                 )}
               </span>
 
+              {/* Sign-off chips per role */}
+              {ROLES.map((role) => {
+                const signers = (fileSignoffs[`file:${item.id}`] ?? []).filter((s) => s.role === role);
+                return (
+                  <div key={role} style={{ width: 36, marginLeft: 4, flexShrink: 0, display: "flex", justifyContent: "center", alignItems: "center" }} className="no-drag">
+                    {signers.length > 0 && (
+                      <span
+                        title={signers.map((s) => s.signed_by).join(", ")}
+                        style={{
+                          fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700,
+                          color: "var(--color-primary)",
+                        }}
+                      >
+                        {signers.map((s) => s.signed_initials || s.signed_by.split(/\s+/).map((w) => w[0] ?? "").join("").toUpperCase()).join("/")}
+
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+
               {/* Size */}
-              <span style={{ width: 80, textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-muted)", flexShrink: 0 }}>
+              <span style={{ width: 80, textAlign: "right", marginLeft: 12, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-text-muted)", flexShrink: 0 }}>
                 {diskMeta ? formatBytes(diskMeta.size_bytes) : ""}
               </span>
 
@@ -907,6 +967,7 @@ function ContextMenu({
   x, y, node, isLocked,
   onOpen, onRename, onNewFolder, onAddLeadsheetLink,
   onRemoveFromCabinet, onDeleteFromDisk, onDeleteFolder,
+  onSignOff, fileSignoffs, currentUser,
 }: {
   x: number; y: number; node: TreeNode; isLocked: boolean;
   onOpen: () => void;
@@ -916,23 +977,42 @@ function ContextMenu({
   onRemoveFromCabinet: () => void;
   onDeleteFromDisk: () => void;
   onDeleteFolder: () => void;
+  onSignOff: (role: SignoffRole) => void;
+  fileSignoffs: Signoff[];
+  currentUser: string;
 }) {
   const isFolder = node.kind === "folder";
   const isFile = node.kind === "item" && node.item.kind === "file";
   const isLink = node.kind === "item" && node.item.kind === "leadsheet";
 
-  const items: { label: string; action: () => void; danger?: boolean; sep?: boolean }[] = [];
+  const menuItems: { label: string; action: () => void; danger?: boolean; sep?: boolean }[] = [];
 
-  if (!isFolder) items.push({ label: "Open", action: onOpen });
-  if (isFolder) items.push({ label: "New Subfolder", action: onNewFolder });
-  if (isFolder) items.push({ label: "Add Leadsheet Link Here", action: onAddLeadsheetLink });
-  items.push({ label: "Rename", action: onRename, sep: !isFolder });
+  if (!isFolder) menuItems.push({ label: "Open", action: onOpen });
+  if (isFolder) menuItems.push({ label: "New Subfolder", action: onNewFolder });
+  if (isFolder) menuItems.push({ label: "Add Leadsheet Link Here", action: onAddLeadsheetLink });
+  menuItems.push({ label: "Rename", action: onRename, sep: !isFolder });
+
+  if (!isLocked && (isFile || isLink)) {
+    // Sign-off entries for each role
+    menuItems.push({ label: "— Sign off —", action: () => {}, sep: true });
+    for (const role of ROLES) {
+      const myEntry = fileSignoffs.find((s) => s.role === role && s.signed_by === currentUser);
+      const existingEntries = fileSignoffs.filter((s) => s.role === role);
+      const othersLabel = existingEntries.filter((s) => s.signed_by !== currentUser)
+        .map((s) => s.signed_by.split(/\s+/).map((w) => w[0] ?? "").join("").toUpperCase().slice(0, 3))
+        .join(", ");
+      const label = myEntry
+        ? `✓ ${ROLE_SHORT[role]}${othersLabel ? ` (${othersLabel})` : ""} — Remove my sign-off`
+        : `Sign off: ${ROLE_SHORT[role]}${othersLabel ? ` (${othersLabel} signed)` : ""}`;
+      menuItems.push({ label, action: () => onSignOff(role) });
+    }
+  }
 
   if (!isLocked) {
-    if (isFile) items.push({ label: "Remove from Cabinet", action: onRemoveFromCabinet, sep: true });
-    if (isFile) items.push({ label: "Delete from Disk", action: onDeleteFromDisk, danger: true });
-    if (isLink) items.push({ label: "Delete Link", action: onRemoveFromCabinet, sep: true, danger: true });
-    if (isFolder) items.push({ label: "Delete Folder", action: onDeleteFolder, sep: true, danger: true });
+    if (isFile) menuItems.push({ label: "Remove from Cabinet", action: onRemoveFromCabinet, sep: true });
+    if (isFile) menuItems.push({ label: "Delete from Disk", action: onDeleteFromDisk, danger: true });
+    if (isLink) menuItems.push({ label: "Delete Link", action: onRemoveFromCabinet, sep: true, danger: true });
+    if (isFolder) menuItems.push({ label: "Delete Folder", action: onDeleteFolder, sep: true, danger: true });
   }
 
   return (
@@ -943,28 +1023,35 @@ function ContextMenu({
         background: "var(--color-bg)",
         border: "1px solid var(--color-border-strong)",
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-        minWidth: 180, padding: "2px 0",
+        minWidth: 200, padding: "2px 0",
         fontSize: 12,
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      {items.map((item, i) => (
-        <div key={i}>
-          {item.sep && i > 0 && <div style={{ borderTop: "1px solid var(--color-border)", margin: "2px 0" }} />}
-          <div
-            onClick={item.action}
-            style={{
-              padding: "4px 16px",
-              cursor: "pointer",
-              color: item.danger ? "var(--color-danger)" : undefined,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-hover-bg)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
-          >
-            {item.label}
+      {menuItems.map((item, i) => {
+        const isHeader = item.label.startsWith("—");
+        return (
+          <div key={i}>
+            {item.sep && i > 0 && !isHeader && <div style={{ borderTop: "1px solid var(--color-border)", margin: "2px 0" }} />}
+            <div
+              onClick={isHeader ? undefined : item.action}
+              style={{
+                padding: isHeader ? "3px 16px 1px" : "4px 16px",
+                cursor: isHeader ? "default" : "pointer",
+                color: item.danger ? "var(--color-danger)" : isHeader ? "var(--color-text-muted)" : undefined,
+                fontSize: isHeader ? 10 : 12,
+                fontWeight: isHeader ? 700 : undefined,
+                textTransform: isHeader ? "uppercase" : undefined,
+                letterSpacing: isHeader ? "0.05em" : undefined,
+              }}
+              onMouseEnter={(e) => { if (!isHeader) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover-bg)"; }}
+              onMouseLeave={(e) => { if (!isHeader) (e.currentTarget as HTMLDivElement).style.background = ""; }}
+            >
+              {item.label}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -1,13 +1,12 @@
 import { Outlet } from "react-router-dom";
 import { useAtom } from "jotai";
-import { commandPaletteOpenAtom, engagementAtom } from "@/store/atoms";
+import { commandPaletteOpenAtom } from "@/store/atoms";
 import AppHeader from "./AppHeader";
 import AppSidebar from "./AppSidebar";
 import CommandPalette from "@/components/ui/CommandPalette";
 import { useEffect } from "react";
 
 export default function AppLayout() {
-  const [engagement] = useAtom(engagementAtom);
   const [cmdOpen, setCmdOpen] = useAtom(commandPaletteOpenAtom);
 
   useEffect(() => {

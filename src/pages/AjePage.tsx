@@ -10,7 +10,6 @@ export default function AjePage() {
   const [engagement] = useAtom(engagementAtom);
   const [settings] = useAtom(settingsAtom);
   const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setAjes(await listAjes());
@@ -45,12 +44,6 @@ export default function AjePage() {
           preparedBy={settings.user_name}
           currency={engagement?.currency ?? "USD"}
         />
-      )}
-
-      {error && (
-        <div style={{ padding: "6px 16px", color: "var(--color-danger)", fontSize: 12 }}>
-          {error}
-        </div>
       )}
 
       <div style={{ flex: 1, overflow: "auto" }}>

@@ -91,11 +91,13 @@ pub struct AjeImpact {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapNumber {
-    pub code: String,           // e.g. "1000", "2100"
+    pub code: String,
     pub label: String,
     pub parent_code: Option<String>,
     pub sort_order: i32,
-    pub fs_line: Option<String>, // which financial statement line this maps to
+    pub fs_line: Option<String>,
+    pub default_grouping_id: Option<i64>,
+    pub flip_map_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,11 +137,12 @@ pub struct Tickmark {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Signoff {
     pub id: i64,
-    pub scope: String,          // "leadsheet:<map>", "engagement", etc.
+    pub scope: String,
     pub role: SignoffRole,
     pub signed_by: String,
+    pub signed_initials: String,
     pub signed_at: DateTime<Utc>,
-    pub signature_hash: String, // SHA-256 of (scope + role + signed_by + timestamp)
+    pub signature_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

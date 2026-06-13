@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAtom } from "jotai";
 import { settingsAtom, engagementAtom } from "@/store/atoms";
-import { saveSettings, lockEngagement, rollForward, exportWwp, save, open } from "@/lib/tauri";
+import { saveSettings, lockEngagement, rollForward, exportWwp, save } from "@/lib/tauri";
 import type { AppSettings } from "@/types";
 
 export default function SettingsPage() {
@@ -9,7 +9,6 @@ export default function SettingsPage() {
   const [engagement, setEngagement] = useAtom(engagementAtom);
   const [local, setLocal] = useState<AppSettings>({ ...settings });
   const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleSave = async () => {
     await saveSettings(local);
@@ -130,7 +129,6 @@ export default function SettingsPage() {
           </section>
         )}
 
-        {error && <div style={{ color: "var(--color-danger)", fontSize: 12 }}>{error}</div>}
       </div>
     </div>
   );

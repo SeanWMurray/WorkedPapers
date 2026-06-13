@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 10.5pt;
+      color: #111;
+      background: #fff;
+    }
+
+    /* ── Page shell ───────────────────────────────────────────────────────── */
+    .page {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 52px 64px 64px;
+    }
+
+    /* ── Letterhead ───────────────────────────────────────────────────────── */
+    .letterhead {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding-bottom: 14px;
+      border-bottom: 2px solid #111;
+      margin-bottom: 28px;
+    }
+    .letterhead__logo img { max-height: 56px; }
+    .letterhead__firm {
+      text-align: right;
+      font-size: 8.5pt;
+      color: #444;
+      line-height: 1.55;
+    }
+
+    /* ── Document title block ─────────────────────────────────────────────── */
+    .title-block {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .title-block__entity {
+      font-size: 14pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .title-block__heading {
+      font-size: 11pt;
+      font-weight: bold;
+      margin-top: 6px;
+    }
+    .title-block__date {
+      font-size: 10pt;
+      margin-top: 3px;
+    }
+    .title-block__basis {
+      font-size: 9pt;
+      color: #555;
+      margin-top: 4px;
+      font-style: italic;
+    }
+
+    /* ── Financial statement table ────────────────────────────────────────── */
+    /*
+      The {{statement:balance_sheet}} tag injects a <table class="fs-table"> block.
+      These styles control how that table looks.
+    */
+    .fs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+      font-size: 10pt;
+    }
+    .fs-table td {
+      padding: 2px 0;
+      vertical-align: bottom;
+    }
+    .fs-table .fs-label {
+      padding-left: 0;
+      width: 60%;
+    }
+    .fs-table .fs-label.fs-indent { padding-left: 18px; }
+    .fs-table .fs-label.fs-indent-2 { padding-left: 36px; }
+    .fs-table .fs-amount {
+      text-align: right;
+      width: 18%;
+      font-family: "Courier New", monospace;
+      font-size: 9.5pt;
+      padding-right: 4px;
+    }
+    .fs-table tr.fs-header td {
+      font-weight: bold;
+      text-transform: uppercase;
+      font-size: 9pt;
+      letter-spacing: 0.03em;
+      padding-top: 14px;
+      padding-bottom: 2px;
+      border-bottom: 1px solid #888;
+    }
+    .fs-table tr.fs-subtotal td {
+      font-weight: bold;
+      border-top: 1px solid #444;
+    }
+    .fs-table tr.fs-total td {
+      font-weight: bold;
+      border-top: 2px solid #111;
+      padding-top: 2px;
+    }
+    .fs-table tr.fs-spacer { height: 6px; }
+    .fs-table .fs-negative { color: #c00; }
+
+    /* ── Section divider ──────────────────────────────────────────────────── */
+    .section-rule {
+      border: none;
+      border-top: 1px solid #ccc;
+      margin: 24px 0 16px;
+    }
+
+    /* ── Footer ───────────────────────────────────────────────────────────── */
+    .footer {
+      margin-top: 36px;
+      padding-top: 10px;
+      border-top: 1px solid #bbb;
+      font-size: 8.5pt;
+      color: #666;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Print ────────────────────────────────────────────────────────────── */
+    @media print {
+      body { font-size: 10pt; }
+      .page { padding: 36px 48px; }
+      @page { margin: 0.75in 0.75in; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Letterhead -->
+  <div class="letterhead">
+    <div class="letterhead__logo">
+      {{image:firm_logo|width=160px}}
+    </div>
+    <div class="letterhead__firm">
+      {{V:firm_name}}<br>
+      {{V:firm_address}}<br>
+      {{V:firm_city}}, {{V:firm_province}}  {{V:firm_postal}}<br>
+      {{V:firm_phone}}
+    </div>
+  </div>
+
+  <!-- Title block -->
+  <div class="title-block">
+    <div class="title-block__entity">{{entity_name}}</div>
+    <div class="title-block__heading">Balance Sheet</div>
+    <div class="title-block__date">As at {{year_end}}</div>
+    <div class="title-block__basis">(Expressed in {{currency}})</div>
+  </div>
+
+  <!-- Statement embed — the engine resolves this into a full <table> -->
+  {{statement:balance_sheet}}
+
+  <hr class="section-rule">
+
+  <!-- Signature / approval block -->
+  <table style="width: 100%; margin-top: 28px; font-size: 9.5pt;">
+    <tr>
+      <td style="width: 45%; padding-right: 24px;">
+        <div style="border-top: 1px solid #444; padding-top: 4px; margin-top: 40px; color: #444;">
+          Approved on behalf of the Board
+        </div>
+        <div style="margin-top: 8px; font-size: 9pt; color: #666;">Director</div>
+      </td>
+      <td style="width: 10%;"></td>
+      <td style="width: 45%;">
+        <div style="border-top: 1px solid #444; padding-top: 4px; margin-top: 40px; color: #444;">
+          Approved on behalf of the Board
+        </div>
+        <div style="margin-top: 8px; font-size: 9pt; color: #666;">Director</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>{{entity_name}} — Balance Sheet as at {{year_end}}</span>
+    <span>See accompanying notes to financial statements {{note_ref:basis}}</span>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom } from "jotai";
 import { engagementAtom, settingsAtom } from "@/store/atoms";
 import { getSettings } from "@/lib/tauri";
 

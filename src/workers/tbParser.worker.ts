@@ -81,11 +81,6 @@ self.onmessage = async (e: MessageEvent) => {
         row.name ??
         "";
 
-      const accountType =
-        row.account_type ??
-        row.type ??
-        inferAccountType(accountNumber.trim());
-
       // Support both single balance column and debit/credit columns
       let currentBalance: number;
       if (row.current_balance !== undefined) {

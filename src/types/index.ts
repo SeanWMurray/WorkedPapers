@@ -77,6 +77,8 @@ export interface MapNumber {
   parent_code: string | null;
   sort_order: number;
   fs_line: string | null;
+  default_grouping_id: number | null;
+  flip_map_code: string | null;
 }
 
 export interface Grouping {
@@ -100,6 +102,7 @@ export interface Signoff {
   scope: string;
   role: SignoffRole;
   signed_by: string;
+  signed_initials: string;
   signed_at: string;
   signature_hash: string;
 }

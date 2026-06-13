@@ -1,9 +1,115 @@
 import { useState, useCallback, useEffect } from "react";
 import { useAtom } from "jotai";
 import { mapNumbersAtom, groupingsAtom, settingsAtom, engagementAtom, activeLeadsheetAtom } from "@/store/atoms";
-import { getLeadsheet, listMapNumbers, listGroupings, saveLeadsheetNote, signOff } from "@/lib/tauri";
+import { getLeadsheet, listMapNumbers, listGroupings, saveLeadsheetNote, signOff, removeSignoff, getSignoffs } from "@/lib/tauri";
 import { formatAccounting } from "@/lib/format";
-import type { Leadsheet } from "@/types";
+import type { Leadsheet, Signoff, SignoffRole } from "@/types";
+
+const ROLES: SignoffRole[] = ["PREPARER", "REVIEWER", "PARTNER"];
+const ROLE_LABEL: Record<SignoffRole, string> = {
+  PREPARER: "Prep",
+  REVIEWER: "Rev",
+  PARTNER: "Ptr",
+};
+
+// ── Sign-off chip strip ────────────────────────────────────────────────────────
+
+function SignoffStrip({
+  scope,
+  signoffs,
+  currentUser,
+  currentInitials,
+  locked,
+  onChanged,
+}: {
+  scope: string;
+  signoffs: Signoff[];
+  currentUser: string;
+  currentInitials: string;
+  locked: boolean;
+  onChanged: () => void;
+}) {
+  const byRole = (role: SignoffRole) => signoffs.filter((s) => s.role === role);
+
+  const handleSign = async (role: SignoffRole) => {
+    await signOff(scope, role, currentUser, currentInitials);
+    onChanged();
+  };
+
+  const handleRemove = async (s: Signoff) => {
+    await removeSignoff(s.id, currentUser);
+    onChanged();
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      {ROLES.map((role) => {
+        const entries = byRole(role);
+        const myEntry = entries.find((s) => s.signed_by === currentUser);
+        return (
+          <div key={role} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{
+              fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.05em", color: "var(--color-text-muted)",
+              marginRight: 2,
+            }}>
+              {ROLE_LABEL[role]}
+            </span>
+
+            {/* Existing signoff chips */}
+            {entries.map((s) => {
+              const isMe = s.signed_by === currentUser;
+              const initials = s.signed_initials || s.signed_by.split(/\s+/).map((w) => w[0] ?? "").join("").toUpperCase().slice(0, 3);
+              return (
+                <div
+                  key={s.id}
+                  title={`${s.signed_by} — ${new Date(s.signed_at).toLocaleDateString()}\n${isMe && !locked ? "Click to remove" : ""}`}
+                  onClick={() => { if (isMe && !locked) handleRemove(s); }}
+                  style={{
+                    width: 26, height: 22,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: isMe ? "var(--color-primary)" : "var(--color-surface)",
+                    border: `1px solid ${isMe ? "var(--color-primary)" : "var(--color-border-strong)"}`,
+                    borderRadius: 3,
+                    fontSize: 10, fontWeight: 700,
+                    color: isMe ? "#fff" : "var(--color-text)",
+                    cursor: isMe && !locked ? "pointer" : "default",
+                    fontFamily: "var(--font-mono)",
+                    userSelect: "none",
+                  }}
+                >
+                  {initials || "?"}
+                </div>
+              );
+            })}
+
+            {/* Add chip — only if not locked and current user hasn't signed this role yet */}
+            {!locked && !myEntry && (
+              <div
+                title={`Sign off as ${role}`}
+                onClick={() => handleSign(role)}
+                style={{
+                  width: 26, height: 22,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "1px dashed var(--color-border-strong)",
+                  borderRadius: 3,
+                  fontSize: 14, lineHeight: 1,
+                  color: "var(--color-text-muted)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+              >
+                +
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function LeadsheetPage() {
   const [mapNumbers, setMapNumbers] = useAtom(mapNumbersAtom);
@@ -14,6 +120,7 @@ export default function LeadsheetPage() {
 
   const [query, setQuery] = useState<{ type: "map" | "group"; key: string } | null>(null);
   const [sheet, setSheet] = useState<Leadsheet | null>(null);
+  const [signoffs, setSignoffs] = useState<Signoff[]>([]);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,10 +142,19 @@ export default function LeadsheetPage() {
     if (!activeLeadsheet) return;
     const { type, key } = activeLeadsheet;
     setActiveLeadsheet(null);
-    open(type, String(key));
+    openSheet(type, String(key));
   }, []); // intentionally runs once on mount only
 
-  const open = useCallback(async (type: "map" | "group", key: string) => {
+  const scopeFor = (type: "map" | "group", key: string) =>
+    type === "map" ? `leadsheet:${key}` : `leadsheet-group:${key}`;
+
+  const loadSignoffs = useCallback(async (type: "map" | "group", key: string) => {
+    const scope = scopeFor(type, key);
+    const data = await getSignoffs(scope);
+    setSignoffs(data);
+  }, []);
+
+  const openSheet = useCallback(async (type: "map" | "group", key: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -48,24 +164,18 @@ export default function LeadsheetPage() {
       setSheet(ls);
       setNotes(ls.notes ?? "");
       setQuery({ type, key });
+      await loadSignoffs(type, key);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadSignoffs]);
 
   const handleSaveNotes = async () => {
     if (!query || !sheet) return;
     const scope = query.type === "map" ? `map:${query.key}` : `group:${query.key}`;
     await saveLeadsheetNote(scope, notes, settings.user_name);
-  };
-
-  const handleSignOff = async (role: string) => {
-    if (!query) return;
-    const scope = query.type === "map" ? `leadsheet:${query.key}` : `leadsheet-group:${query.key}`;
-    await signOff(scope, role, settings.user_name);
-    alert(`Signed off as ${role}`);
   };
 
   const currency = engagement?.currency ?? "USD";
@@ -87,7 +197,7 @@ export default function LeadsheetPage() {
               <button
                 key={m.code}
                 className={`sidebar-nav-item${query?.type === "map" && query.key === m.code ? " active" : ""}`}
-                onClick={() => open("map", m.code)}
+                onClick={() => openSheet("map", m.code)}
               >
                 <span className="mono" style={{ fontSize: 11 }}>{m.code}</span>
                 <span style={{ fontSize: 11, color: "inherit" }}>{m.label}</span>
@@ -103,7 +213,7 @@ export default function LeadsheetPage() {
               <button
                 key={g.id}
                 className={`sidebar-nav-item${query?.type === "group" && query.key === String(g.id) ? " active" : ""}`}
-                onClick={() => open("group", String(g.id))}
+                onClick={() => openSheet("group", String(g.id))}
               >
                 {g.name}
               </button>
@@ -123,20 +233,18 @@ export default function LeadsheetPage() {
 
         {sheet && !loading && (
           <>
-            <div className="page-header">
+            <div className="page-header" style={{ gap: 12 }}>
               <span className="page-header__title">{sheet.title}</span>
-              {!engagement?.is_locked && (
-                <div style={{ display: "flex", gap: 4 }}>
-                  <button className="btn btn-sm" onClick={() => handleSignOff("PREPARER")}>
-                    Prepare
-                  </button>
-                  <button className="btn btn-sm" onClick={() => handleSignOff("REVIEWER")}>
-                    Review
-                  </button>
-                  <button className="btn btn-sm" onClick={() => handleSignOff("PARTNER")}>
-                    Partner
-                  </button>
-                </div>
+              <div style={{ flex: 1 }} />
+              {query && (
+                <SignoffStrip
+                  scope={scopeFor(query.type, query.key)}
+                  signoffs={signoffs}
+                  currentUser={settings.user_name}
+                  currentInitials={settings.user_initials}
+                  locked={!!engagement?.is_locked}
+                  onChanged={() => loadSignoffs(query.type, query.key)}
+                />
               )}
             </div>
 
