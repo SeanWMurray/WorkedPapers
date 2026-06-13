@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/WixTools/
+
+# Local engagement files (never commit real client data)
+*.wwp
+*.db
+*.db-wal
+*.db-shm
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
