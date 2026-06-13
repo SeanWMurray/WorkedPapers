@@ -1,5 +1,7 @@
 # Worked Papers
 
+currently non-functional
+
 A modern, lightning-fast desktop application for accounting firms — a purpose-built alternative to other working paper softwares.
 
 Built with **Tauri** (Rust backend) + **React** (TypeScript frontend) + **SQLite** (local data store).

@@ -70,27 +70,40 @@ pub async fn get_tb_accounts(
              a.id,
              a.account_number,
              a.account_name,
-             a.current_balance,
+             a.current_balance AS prelim,
              a.prior_balance,
              a.map_number,
              a.notes,
-             COALESCE(SUM(l.debit - l.credit), 0.0) AS aje_net
+             COALESCE(SUM(CASE WHEN j.entry_type = 'ADJUSTING'     THEN j.debit - j.credit ELSE 0.0 END), 0.0) AS adj_net,
+             COALESCE(SUM(CASE WHEN j.entry_type = 'RECLASSIFYING' THEN j.debit - j.credit ELSE 0.0 END), 0.0) AS rcl_net,
+             COALESCE(SUM(CASE WHEN j.entry_type = 'TAX'           THEN j.debit - j.credit ELSE 0.0 END), 0.0) AS tax_net
          FROM tb_accounts a
-         LEFT JOIN aje_lines l ON l.account_number = a.account_number
-         LEFT JOIN ajes j      ON j.id = l.aje_id AND j.is_voided = 0
+         LEFT JOIN (
+             SELECT l.account_number, l.debit, l.credit, j.entry_type
+             FROM aje_lines l
+             JOIN ajes j ON j.id = l.aje_id AND j.is_voided = 0
+         ) j ON j.account_number = a.account_number
          GROUP BY a.id
          ORDER BY a.account_number",
     )?;
 
     let accounts = stmt
         .query_map([], |row| {
-            let aje_net: f64 = row.get(7)?;
+            let prelim: f64     = row.get(3)?;
+            let adj_net: f64    = row.get(7)?;
+            let rcl_net: f64    = row.get(8)?;
+            let tax_net: f64    = row.get(9)?;
+            let final_bal = prelim + adj_net + rcl_net + tax_net;
             Ok(TbAccount {
                 id: row.get(0)?,
                 account_number: row.get(1)?,
                 account_name: row.get(2)?,
-                current_balance: row.get::<_, f64>(3)? + aje_net,
+                prelim_balance: prelim,
                 prior_balance: row.get(4)?,
+                adjustment_net: adj_net,
+                reclass_net: rcl_net,
+                tax_net,
+                current_balance: final_bal,
                 map_number: row.get(5)?,
                 grouping_ids: vec![],
                 notes: row.get(6)?,
@@ -125,11 +138,26 @@ pub async fn get_tb_summary(
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
 
+    // Sum using the final (AJE-adjusted) balance per account.
     let mut stmt = db.conn.prepare(
         "SELECT
-             COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0.0),
-             COALESCE(SUM(CASE WHEN current_balance < 0 THEN current_balance ELSE 0 END), 0.0)
-         FROM tb_accounts",
+             COALESCE(SUM(CASE WHEN final > 0 THEN final ELSE 0 END), 0.0),
+             COALESCE(SUM(CASE WHEN final < 0 THEN final ELSE 0 END), 0.0)
+         FROM (
+             SELECT
+                 a.current_balance
+                 + COALESCE(SUM(CASE WHEN j.entry_type = 'ADJUSTING'     THEN j.debit - j.credit ELSE 0.0 END), 0.0)
+                 + COALESCE(SUM(CASE WHEN j.entry_type = 'RECLASSIFYING' THEN j.debit - j.credit ELSE 0.0 END), 0.0)
+                 + COALESCE(SUM(CASE WHEN j.entry_type = 'TAX'           THEN j.debit - j.credit ELSE 0.0 END), 0.0)
+                 AS final
+             FROM tb_accounts a
+             LEFT JOIN (
+                 SELECT l.account_number, l.debit, l.credit, j.entry_type
+                 FROM aje_lines l
+                 JOIN ajes j ON j.id = l.aje_id AND j.is_voided = 0
+             ) j ON j.account_number = a.account_number
+             GROUP BY a.id
+         )",
     )?;
 
     let (total_debits, total_credits): (f64, f64) = stmt.query_row([], |row| {

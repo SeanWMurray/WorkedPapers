@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod error;
 mod models;
+mod report_engine;
 mod wwp;
 
 use db::AppDb;
@@ -51,6 +52,15 @@ pub fn run() {
             commands::signoff::get_audit_trail,
             // Reports
             commands::reports::render_report_data,
+            // Report engine (programmable statements)
+            commands::reports::list_statements,
+            commands::reports::resolve_statement,
+            commands::reports::upsert_statement,
+            commands::reports::delete_statement,
+            commands::reports::upsert_statement_line,
+            commands::reports::delete_statement_line,
+            commands::reports::reorder_statement_lines,
+            commands::reports::seed_default_statements,
             // File attachments (legacy flat)
             commands::files::list_attachments,
             commands::files::attach_file,

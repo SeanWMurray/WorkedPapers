@@ -22,8 +22,17 @@ pub struct TbAccount {
     pub id: i64,
     pub account_number: String,
     pub account_name: String,
-    pub current_balance: f64,
+    /// Raw imported balance — no AJEs applied.
+    pub prelim_balance: f64,
     pub prior_balance: f64,
+    /// Net of ADJUSTING-type entries only.
+    pub adjustment_net: f64,
+    /// Net of RECLASSIFYING-type entries only.
+    pub reclass_net: f64,
+    /// Net of TAX-type entries only.
+    pub tax_net: f64,
+    /// prelim + all entry nets — used by the report engine and leadsheets.
+    pub current_balance: f64,
     pub map_number: Option<String>,
     pub grouping_ids: Vec<i64>,
     pub notes: Option<String>,
@@ -175,6 +184,60 @@ pub struct CustomVar {
     pub key: String,
     pub value: String,
     pub description: Option<String>,
+}
+
+// ─── Report Engine ─────────────────────────────────────────────────────────────
+// A statement is a stored, ordered tree of typed lines. Amounts are resolved from
+// map totals / custom vars / formulas by the engine, not hardcoded per statement.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Statement {
+    pub id: i64,
+    pub name: String,
+    pub kind: String,           // BALANCE_SHEET | INCOME_STATEMENT | CASH_FLOW | EQUITY | CUSTOM
+    pub sort_order: i32,
+    pub lines: Vec<StatementLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatementLine {
+    pub id: i64,
+    pub statement_id: i64,
+    pub parent_id: Option<i64>,
+    pub line_no: i64,           // stable reference id used by L: formulas
+    pub sort_order: i32,
+    pub line_type: String,      // HEADER | MAP | FORMULA | SUBTOTAL | VAR | SPACER
+    pub label: String,
+    pub expression: Option<String>,
+    pub bold: bool,
+    pub underline: bool,
+    pub show_prior: bool,
+    pub invert_sign: bool,
+}
+
+/// A statement after the engine has evaluated every line into concrete amounts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedStatement {
+    pub id: i64,
+    pub name: String,
+    pub kind: String,
+    pub engagement: EngagementMeta,
+    pub lines: Vec<ResolvedLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedLine {
+    pub line_no: i64,
+    pub depth: i32,             // nesting depth for indentation
+    pub line_type: String,
+    pub label: String,
+    pub current: Option<f64>,   // None = no amount (HEADER / SPACER / VAR-text)
+    pub prior: Option<f64>,
+    pub text: Option<String>,   // for VAR lines: the resolved variable text
+    pub bold: bool,
+    pub underline: bool,
+    pub show_prior: bool,
+    pub error: Option<String>,  // formula/reference error, if any
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

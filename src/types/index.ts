@@ -20,8 +20,17 @@ export interface TbAccount {
   id: number;
   account_number: string;
   account_name: string;
-  current_balance: number;
+  /** Raw imported balance — no entries applied. */
+  prelim_balance: number;
   prior_balance: number;
+  /** Net of ADJUSTING-type entries. */
+  adjustment_net: number;
+  /** Net of RECLASSIFYING-type entries. */
+  reclass_net: number;
+  /** Net of TAX-type entries. */
+  tax_net: number;
+  /** prelim + all nets — alias kept for report engine / leadsheet compatibility. */
+  current_balance: number;
   map_number: string | null;
   grouping_ids: number[];
   notes: string | null;
@@ -124,6 +133,70 @@ export interface ReportData {
   engagement: EngagementMeta;
   map_totals: MapTotal[];
   custom_vars: CustomVar[];
+}
+
+// ─── Report Engine (programmable statements) ──────────────────────────────────
+// A statement is a stored, ordered tree of typed lines. Amounts are resolved
+// from map totals / custom vars / formulas by the engine, not hardcoded.
+
+export type StatementKind =
+  | "BALANCE_SHEET"
+  | "INCOME_STATEMENT"
+  | "CASH_FLOW"
+  | "EQUITY"
+  | "CUSTOM";
+
+export type LineType =
+  | "HEADER"
+  | "MAP"
+  | "FORMULA"
+  | "SUBTOTAL"
+  | "VAR"
+  | "SPACER";
+
+export interface StatementLine {
+  id: number;
+  statement_id: number;
+  parent_id: number | null;
+  line_no: number; // stable reference id used by L: formulas
+  sort_order: number;
+  line_type: LineType;
+  label: string;
+  expression: string | null;
+  bold: boolean;
+  underline: boolean;
+  show_prior: boolean;
+  invert_sign: boolean;
+}
+
+export interface Statement {
+  id: number;
+  name: string;
+  kind: StatementKind;
+  sort_order: number;
+  lines: StatementLine[];
+}
+
+export interface ResolvedLine {
+  line_no: number;
+  depth: number;
+  line_type: LineType;
+  label: string;
+  current: number | null;
+  prior: number | null;
+  text: string | null;
+  bold: boolean;
+  underline: boolean;
+  show_prior: boolean;
+  error: string | null;
+}
+
+export interface ResolvedStatement {
+  id: number;
+  name: string;
+  kind: StatementKind;
+  engagement: EngagementMeta;
+  lines: ResolvedLine[];
 }
 
 export interface AppSettings {

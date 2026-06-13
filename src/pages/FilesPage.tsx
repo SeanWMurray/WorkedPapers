@@ -92,12 +92,139 @@ type DragPayload =
   | { kind: "folder"; id: number };
 
 // ── Drop indicator ────────────────────────────────────────────────────────────
+// We use a pointer-event based drag (NOT HTML5 drag-and-drop) because Tauri 1.x
+// on Windows WebView2 registers a native OLE drop target when fileDropEnabled is
+// true, which suppresses the webview's HTML5 DnD entirely. Pointer events
+// sidestep that conflict — see FILES_PAGE_DRAG_DEBUG.md.
 
 type DropTarget =
-  | { type: "before-folder"; folderId: number }
   | { type: "into-folder"; folderId: number }
-  | { type: "after-item"; itemId: number; folderId: number | null }
+  | { type: "before"; kind: "folder" | "item"; id: number; folderId: number | null }
+  | { type: "after"; kind: "folder" | "item"; id: number; folderId: number | null }
   | { type: "root" };
+
+// ── Pointer-based drag hook ───────────────────────────────────────────────────
+
+function useCabinetDrag(
+  onDropComplete: (payload: DragPayload, target: DropTarget) => Promise<void>,
+) {
+  const dragData = useRef<{
+    payload: DragPayload | null;
+    startX: number;
+    startY: number;
+    clone: HTMLElement | null;
+    isDragging: boolean;
+  }>({ payload: null, startX: 0, startY: 0, clone: null, isDragging: false });
+
+  const dropTargetRef = useRef<DropTarget | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const updateDropTarget = useCallback((target: DropTarget | null) => {
+    if (JSON.stringify(dropTargetRef.current) !== JSON.stringify(target)) {
+      dropTargetRef.current = target;
+      setDropTarget(target);
+    }
+  }, []);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, payload: DragPayload) => {
+    if (e.button !== 0) return; // left button only
+    // Don't start a drag from interactive children (chevron, buttons, inputs).
+    if ((e.target as HTMLElement).closest("button, input, .no-drag")) return;
+
+    const row = e.currentTarget;
+    dragData.current = { payload, startX: e.clientX, startY: e.clientY, clone: null, isDragging: false };
+
+    const handlePointerMove = (moveEv: PointerEvent) => {
+      const d = dragData.current;
+      if (!d.payload) return;
+
+      // Click-vs-drag threshold
+      if (!d.isDragging) {
+        const dx = Math.abs(moveEv.clientX - d.startX);
+        const dy = Math.abs(moveEv.clientY - d.startY);
+        if (dx < 5 && dy < 5) return;
+
+        d.isDragging = true;
+        setIsDragging(true);
+
+        const rect = row.getBoundingClientRect();
+        const clone = row.cloneNode(true) as HTMLElement;
+        clone.style.position = "fixed";
+        clone.style.top = "0px";
+        clone.style.left = "0px";
+        clone.style.width = `${rect.width}px`;
+        clone.style.opacity = "0.75";
+        clone.style.pointerEvents = "none"; // let elementFromPoint pierce through
+        clone.style.zIndex = "9999";
+        clone.style.background = "var(--color-bg)";
+        clone.style.boxShadow = "0 4px 12px rgba(0,0,0,0.18)";
+        document.body.appendChild(clone);
+        d.clone = clone;
+        document.body.style.userSelect = "none";
+      }
+
+      if (d.clone) {
+        d.clone.style.transform = `translate(${moveEv.clientX + 12}px, ${moveEv.clientY + 8}px)`;
+      }
+
+      // Hit-test the row under the cursor
+      const el = document.elementFromPoint(moveEv.clientX, moveEv.clientY);
+      const targetRow = el?.closest("[data-cabinet-row]") as HTMLElement | null;
+
+      if (targetRow) {
+        const tKind = targetRow.dataset.kind as "folder" | "item";
+        const tId = Number(targetRow.dataset.id);
+        const tFolderId = targetRow.dataset.folderId ? Number(targetRow.dataset.folderId) : null;
+
+        // Can't drop onto itself
+        if (tKind === d.payload.kind && tId === d.payload.id) {
+          updateDropTarget(null);
+          return;
+        }
+
+        const rect = targetRow.getBoundingClientRect();
+        const yFrac = (moveEv.clientY - rect.top) / rect.height;
+
+        if (tKind === "folder") {
+          if (yFrac < 0.25) updateDropTarget({ type: "before", kind: "folder", id: tId, folderId: tFolderId });
+          else if (yFrac > 0.75) updateDropTarget({ type: "after", kind: "folder", id: tId, folderId: tFolderId });
+          else updateDropTarget({ type: "into-folder", folderId: tId });
+        } else {
+          if (yFrac < 0.5) updateDropTarget({ type: "before", kind: "item", id: tId, folderId: tFolderId });
+          else updateDropTarget({ type: "after", kind: "item", id: tId, folderId: tFolderId });
+        }
+      } else if (el?.closest(".cabinet-tree")) {
+        updateDropTarget({ type: "root" });
+      } else {
+        updateDropTarget(null);
+      }
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      document.body.style.userSelect = "";
+
+      const d = dragData.current;
+      if (d.clone) d.clone.remove();
+
+      if (d.isDragging) {
+        const payloadFinal = d.payload;
+        const target = dropTargetRef.current;
+        setIsDragging(false);
+        updateDropTarget(null);
+        if (payloadFinal && target) void onDropComplete(payloadFinal, target);
+      }
+      dragData.current = { payload: null, startX: 0, startY: 0, clone: null, isDragging: false };
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
+
+  return { handlePointerDown, dropTarget, isDragging };
+}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -124,17 +251,8 @@ export default function FilesPage() {
   const [linkScope, setLinkScope] = useState("");
   const [linkName, setLinkName] = useState("");
 
-  // Drag-and-drop
-  const dragPayload = useRef<DragPayload | null>(null);
-  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
-  // True while an *in-app* HTML5 drag is in progress. External Explorer drags
-  // never fire dragstart, so this stays false for them — letting us tell the two
-  // apart and suppress the Tauri OS-drop overlay during internal reorganizing.
-  const isInternalDrag = useRef(false);
-  // State mirror of the ref, used to toggle pointer-events on row children so the
-  // row itself stays the drop target (otherwise hovering a child span shows the
-  // "no-drop" cursor because the child never calls preventDefault).
-  const [draggingActive, setDraggingActive] = useState(false);
+  // Drag-and-drop is pointer-based (see useCabinetDrag); wired up after the
+  // derived node list below so executeDrop can resolve sibling ordering.
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
@@ -162,15 +280,10 @@ export default function FilesPage() {
     return () => window.removeEventListener("click", handler);
   }, [ctxMenu]);
 
-  // OS file drop (external files dragged from Explorer). We ignore these events
-  // entirely while an in-app drag is happening so the overlay never hijacks
-  // internal reorganizing.
+  // OS file drop (external files dragged from Explorer). Decoupled from internal
+  // dragging now that internal reorg uses pointer events, not HTML5 DnD.
   useEffect(() => {
     const unlisten = appWindow.onFileDropEvent((event) => {
-      if (isInternalDrag.current) {
-        setOsDragging(false);
-        return;
-      }
       if (event.payload.type === "hover") {
         setOsDragging(true);
       } else if (event.payload.type === "drop") {
@@ -298,63 +411,6 @@ export default function FilesPage() {
     await refresh();
   };
 
-  // ── Drag handlers ──────────────────────────────────────────────────────────
-
-  function onDragStart(e: React.DragEvent, payload: DragPayload) {
-    dragPayload.current = payload;
-    isInternalDrag.current = true;
-    setOsDragging(false); // make sure no stale OS overlay is showing
-    setDraggingActive(true);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", String(payload.id)); // some webviews need a payload
-    // Prevent ghost text selection during drag
-    e.dataTransfer.setDragImage(e.currentTarget as Element, 12, 12);
-  }
-
-  function onDragEnd() {
-    // Fires whether the drop succeeded or was cancelled — always clean up.
-    isInternalDrag.current = false;
-    dragPayload.current = null;
-    setDropTarget(null);
-    setDraggingActive(false);
-  }
-
-  function onDragOver(e: React.DragEvent, target: DropTarget) {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = "move";
-    setDropTarget(target);
-  }
-
-  async function onDrop(e: React.DragEvent, target: DropTarget) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDropTarget(null);
-    setDraggingActive(false);
-    const payload = dragPayload.current;
-    isInternalDrag.current = false;
-    if (!payload) return;
-
-    if (payload.kind === "item") {
-      if (target.type === "into-folder") {
-        await moveCabinetItem(payload.id, target.folderId, null);
-      } else if (target.type === "after-item") {
-        await moveCabinetItem(payload.id, target.folderId, target.itemId);
-      } else if (target.type === "root") {
-        await moveCabinetItem(payload.id, null, null);
-      }
-    } else if (payload.kind === "folder") {
-      if (target.type === "into-folder" && payload.id !== target.folderId) {
-        await moveCabinetFolder(payload.id, target.folderId, null);
-      } else if (target.type === "root") {
-        await moveCabinetFolder(payload.id, null, null);
-      }
-    }
-
-    dragPayload.current = null;
-    await refresh();
-  }
-
   // ── Derived flat node list ─────────────────────────────────────────────────
 
   const folders = tree?.folders ?? [];
@@ -367,6 +423,69 @@ export default function FilesPage() {
     items.filter((i) => i.file_path).map((i) => i.file_path!.toLowerCase())
   );
   const unregisteredDiskFiles = diskFiles.filter((f) => !registeredPaths.has(f.name.toLowerCase()));
+
+  // ── Drag handling (pointer-based) ──────────────────────────────────────────
+
+  // The backend orders by `afterId` (the sibling to land after; null = first).
+  // For a "before X" drop we need the item id immediately preceding X among its
+  // own item-siblings (folders order independently from items at each level).
+  const prevItemSiblingId = useCallback((itemId: number, folderId: number | null): number | null => {
+    const siblings = items
+      .filter((i) => i.folder_id === folderId)
+      .sort((a, b) => a.sort_order - b.sort_order || a.display_name.localeCompare(b.display_name));
+    const idx = siblings.findIndex((s) => s.id === itemId);
+    return idx > 0 ? siblings[idx - 1].id : null;
+  }, [items]);
+
+  const prevFolderSiblingId = useCallback((folderId: number, parentId: number | null): number | null => {
+    const siblings = folders
+      .filter((f) => f.parent_id === parentId)
+      .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+    const idx = siblings.findIndex((s) => s.id === folderId);
+    return idx > 0 ? siblings[idx - 1].id : null;
+  }, [folders]);
+
+  const executeDrop = useCallback(async (payload: DragPayload, target: DropTarget) => {
+    if (payload.kind === "item") {
+      let folderId: number | null = null;
+      let afterId: number | null = null;
+      if (target.type === "into-folder") {
+        folderId = target.folderId;
+      } else if (target.type === "root") {
+        folderId = null;
+      } else if (target.kind === "item") {
+        // Reordering relative to another item in the same folder.
+        folderId = target.folderId;
+        afterId = target.type === "after" ? target.id : prevItemSiblingId(target.id, target.folderId);
+      } else {
+        // Dropped before/after a folder row → land in that folder's parent level.
+        folderId = target.folderId;
+        afterId = null;
+      }
+      await moveCabinetItem(payload.id, folderId, afterId);
+    } else {
+      // Folder being moved.
+      let parentId: number | null = null;
+      let afterId: number | null = null;
+      if (target.type === "into-folder") {
+        if (payload.id === target.folderId) return; // no-op onto self
+        parentId = target.folderId;
+      } else if (target.type === "root") {
+        parentId = null;
+      } else if (target.kind === "folder") {
+        parentId = target.folderId; // the dragged-over folder's parent
+        afterId = target.type === "after" ? target.id : prevFolderSiblingId(target.id, target.folderId);
+      } else {
+        // before/after an item row → move folder to that item's folder level
+        parentId = target.folderId;
+        afterId = null;
+      }
+      await moveCabinetFolder(payload.id, parentId, afterId);
+    }
+    await refresh();
+  }, [prevItemSiblingId, prevFolderSiblingId, refresh]);
+
+  const { handlePointerDown, dropTarget } = useCabinetDrag(executeDrop);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -472,27 +591,12 @@ export default function FilesPage() {
         </div>
       )}
 
-      {/* Tree. The container is the catch-all "drop to root" zone; row-level
-          handlers stopPropagation so they win when the cursor is over a row. */}
+      {/* Tree. The .cabinet-tree class is the catch-all "drop to root" hit zone
+          for the pointer-drag hit-testing. */}
       <div
-        className={draggingActive ? "cabinet-tree dragging" : "cabinet-tree"}
+        className="cabinet-tree"
         style={{ flex: 1, overflow: "auto", userSelect: "none" }}
-        onDragOver={(e) => {
-          if (!isInternalDrag.current) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setDropTarget({ type: "root" });
-        }}
-        onDrop={(e) => { if (isInternalDrag.current) onDrop(e, { type: "root" }); }}
       >
-        {/* While a row is being dragged, let pointer/drag events pass through the
-            children straight to the draggable row, so the drop target is always
-            the row and the "no-drop" cursor never appears. The dragged row keeps
-            pointer-events so its own dragend still fires. */}
-        <style>{`
-          .cabinet-tree.dragging [data-cabinet-row] * { pointer-events: none; }
-        `}</style>
-
         {/* Column header */}
         <div style={{
           display: "flex", alignItems: "center",
@@ -524,17 +628,18 @@ export default function FilesPage() {
           if (node.kind === "folder") {
             const isCollapsed = collapsed.has(node.folder.id);
             const isRenaming = renamingFolderId === node.folder.id;
-            const isDropTarget = dropTarget?.type === "into-folder" && dropTarget.folderId === node.folder.id;
+            const dropInto = dropTarget?.type === "into-folder" && dropTarget.folderId === node.folder.id;
+            const dropBefore = (dropTarget?.type === "before") && dropTarget.kind === "folder" && dropTarget.id === node.folder.id;
+            const dropAfter = (dropTarget?.type === "after") && dropTarget.kind === "folder" && dropTarget.id === node.folder.id;
 
             return (
               <div key={`f-${node.folder.id}`}>
                 <div
                   data-cabinet-row
-                  draggable={!isRenaming}
-                  onDragStart={(e) => onDragStart(e, { kind: "folder", id: node.folder.id })}
-                  onDragEnd={onDragEnd}
-                  onDragOver={(e) => onDragOver(e, { type: "into-folder", folderId: node.folder.id })}
-                  onDrop={(e) => onDrop(e, { type: "into-folder", folderId: node.folder.id })}
+                  data-kind="folder"
+                  data-id={node.folder.id}
+                  data-folder-id={node.folder.parent_id ?? ""}
+                  onPointerDown={(e) => { if (!isRenaming) handlePointerDown(e, { kind: "folder", id: node.folder.id }); }}
                   onDoubleClick={() => {
                     setCollapsed((prev) => {
                       const next = new Set(prev);
@@ -554,16 +659,18 @@ export default function FilesPage() {
                     height: 24,
                     fontSize: 12,
                     cursor: "default",
-                    background: isDropTarget ? "var(--color-hover-bg)" : undefined,
-                    outline: isDropTarget ? "1px solid var(--color-border-strong)" : undefined,
+                    background: dropInto ? "var(--color-hover-bg)" : undefined,
+                    outline: dropInto ? "1px solid var(--color-border-strong)" : undefined,
                     outlineOffset: -1,
-                    borderBottom: "1px solid transparent",
+                    borderTop: dropBefore ? "2px solid var(--color-border-strong)" : "1px solid transparent",
+                    borderBottom: dropAfter ? "2px solid var(--color-border-strong)" : "1px solid transparent",
                   }}
-                  onMouseEnter={(e) => { if (!isDropTarget) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover-bg)"; }}
-                  onMouseLeave={(e) => { if (!isDropTarget) (e.currentTarget as HTMLDivElement).style.background = ""; }}
+                  onMouseEnter={(e) => { if (!dropInto) (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover-bg)"; }}
+                  onMouseLeave={(e) => { if (!dropInto) (e.currentTarget as HTMLDivElement).style.background = ""; }}
                 >
                   {/* Expand toggle */}
                   <span
+                    className="no-drag"
                     onClick={() => setCollapsed((prev) => {
                       const next = new Set(prev);
                       if (next.has(node.folder.id)) next.delete(node.folder.id);
@@ -618,17 +725,17 @@ export default function FilesPage() {
           // Item row
           const { item, depth, diskMeta } = node;
           const missingFile = item.kind === "file" && !diskMeta;
-          const isDropTarget = dropTarget?.type === "after-item" && dropTarget.itemId === item.id;
+          const dropBefore = dropTarget?.type === "before" && dropTarget.kind === "item" && dropTarget.id === item.id;
+          const dropAfter = dropTarget?.type === "after" && dropTarget.kind === "item" && dropTarget.id === item.id;
 
           return (
             <div
               key={`i-${item.id}`}
               data-cabinet-row
-              draggable
-              onDragStart={(e) => onDragStart(e, { kind: "item", id: item.id })}
-              onDragEnd={onDragEnd}
-              onDragOver={(e) => onDragOver(e, { type: "after-item", itemId: item.id, folderId: item.folder_id })}
-              onDrop={(e) => onDrop(e, { type: "after-item", itemId: item.id, folderId: item.folder_id })}
+              data-kind="item"
+              data-id={item.id}
+              data-folder-id={item.folder_id ?? ""}
+              onPointerDown={(e) => handlePointerDown(e, { kind: "item", id: item.id })}
               onDoubleClick={() => handleOpenItem(item)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -642,7 +749,8 @@ export default function FilesPage() {
                 fontSize: 12,
                 cursor: "default",
                 opacity: missingFile ? 0.45 : 1,
-                borderTop: isDropTarget ? "2px solid var(--color-border-strong)" : "1px solid transparent",
+                borderTop: dropBefore ? "2px solid var(--color-border-strong)" : "1px solid transparent",
+                borderBottom: dropAfter ? "2px solid var(--color-border-strong)" : "1px solid transparent",
               }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--color-hover-bg)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ""; }}

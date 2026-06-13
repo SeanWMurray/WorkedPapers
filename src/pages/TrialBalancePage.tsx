@@ -174,11 +174,14 @@ function TbSummaryBar({ summary, currency }: { summary: TbSummary; currency: str
 
 // ── Virtualized grid ──────────────────────────────────────────────────────────
 
-const COL_WIDTHS = { num: 90, name: 420, current: 130, prior: 130, map: 80 };
+const COL_WIDTHS = { num: 90, name: 260, prior: 110, prelim: 110, adj: 100, rcl: 100, tax: 100, final: 120, map: 70 };
 
 function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(400);
+
+  // Only show TJE column if any account has tax entries.
+  const hasTax = accounts.some((a) => a.tax_net !== 0);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -187,6 +190,9 @@ function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
+
+  const fmt = (v: number) => formatAccounting(v, currency);
+  const fmtNet = (v: number) => v === 0 ? "—" : formatAccounting(v, currency);
 
   const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
     const a = accounts[index];
@@ -203,11 +209,25 @@ function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency
       >
         <Cell w={COL_WIDTHS.num}>{a.account_number}</Cell>
         <Cell w={COL_WIDTHS.name}>{a.account_name}</Cell>
-        <Cell w={COL_WIDTHS.current} right negative={a.current_balance < 0}>
-          {formatAccounting(a.current_balance, currency)}
-        </Cell>
         <Cell w={COL_WIDTHS.prior} right negative={a.prior_balance < 0}>
-          {formatAccounting(a.prior_balance, currency)}
+          {fmt(a.prior_balance)}
+        </Cell>
+        <Cell w={COL_WIDTHS.prelim} right negative={a.prelim_balance < 0}>
+          {fmt(a.prelim_balance)}
+        </Cell>
+        <Cell w={COL_WIDTHS.adj} right negative={a.adjustment_net < 0} muted={a.adjustment_net === 0}>
+          {fmtNet(a.adjustment_net)}
+        </Cell>
+        <Cell w={COL_WIDTHS.rcl} right negative={a.reclass_net < 0} muted={a.reclass_net === 0}>
+          {fmtNet(a.reclass_net)}
+        </Cell>
+        {hasTax && (
+          <Cell w={COL_WIDTHS.tax} right negative={a.tax_net < 0} muted={a.tax_net === 0}>
+            {fmtNet(a.tax_net)}
+          </Cell>
+        )}
+        <Cell w={COL_WIDTHS.final} right negative={a.current_balance < 0} bold>
+          {fmt(a.current_balance)}
         </Cell>
         <Cell w={COL_WIDTHS.map} muted>{a.map_number ?? "—"}</Cell>
       </div>
@@ -230,8 +250,12 @@ function VirtualTbGrid({ accounts, currency }: { accounts: TbAccount[]; currency
       >
         <Cell w={COL_WIDTHS.num}>Account #</Cell>
         <Cell w={COL_WIDTHS.name}>Name</Cell>
-        <Cell w={COL_WIDTHS.current} right>Current (adj)</Cell>
         <Cell w={COL_WIDTHS.prior} right>Prior Year</Cell>
+        <Cell w={COL_WIDTHS.prelim} right>Preliminary</Cell>
+        <Cell w={COL_WIDTHS.adj} right>AJEs</Cell>
+        <Cell w={COL_WIDTHS.rcl} right>RJEs</Cell>
+        {hasTax && <Cell w={COL_WIDTHS.tax} right>TJEs</Cell>}
+        <Cell w={COL_WIDTHS.final} right>Final</Cell>
         <Cell w={COL_WIDTHS.map}>Map</Cell>
       </div>
 
@@ -250,12 +274,14 @@ function Cell({
   right,
   muted,
   negative,
+  bold,
 }: {
   w: number;
   children: React.ReactNode;
   right?: boolean;
   muted?: boolean;
   negative?: boolean;
+  bold?: boolean;
 }) {
   return (
     <div
@@ -267,6 +293,7 @@ function Cell({
         display: "flex",
         alignItems: "center",
         justifyContent: right ? "flex-end" : "flex-start",
+        fontWeight: bold ? 700 : undefined,
         color: negative
           ? "var(--color-danger)"
           : muted

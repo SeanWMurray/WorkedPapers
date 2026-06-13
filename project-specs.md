@@ -20,7 +20,12 @@
 
 ### 3.1. Native File Management & Archiving
 * **Direct Directory Mirroring:** Each engagement is a self-contained `.db` file the user saves anywhere on disk. No rigid directory structure enforced.
-* **File Attachment Panel:** ✅ **Implemented** — `FilesPage` lists all non-DB files in the engagement directory. Supports drag-and-drop (Tauri `onFileDropEvent`) and file-picker attach. Files are copied into the engagement directory with collision-safe naming. Double-click or "Open" launches with the system default application (`opener` crate). Delete is guarded to the engagement directory only. Locked engagements suppress the delete button.
+* **Document Manager (File Cabinet):** ✅ **Implemented** — Caseware-style `FilesPage` document tree. Real files stay flat on disk in the engagement directory; the **folder tree, nesting, ordering, and leadsheet links are DB-only** (`file_cabinet_folders` + `file_cabinet_items`, migration 003).
+    * **Virtual folders:** unlimited nesting via self-referencing `parent_id`; collapse/expand; inline create/rename/delete; deleting a folder reparents its items to root (`ON DELETE SET NULL`).
+    * **Drag-to-organize:** pointer-event-based drag (NOT HTML5 DnD) — reorder items, move items between folders, and move folders (with their whole subtree) into other folders. A floating ghost clone follows the cursor; before/after/into drop indicators. *(Pointer events were required because Tauri 1.x `fileDropEnabled` on Windows WebView2 registers a native OLE drop target that suppresses HTML5 DnD — see `FILES_PAGE_DRAG_DEBUG.md`.)*
+    * **External file attach:** drag files in from Explorer (Tauri `onFileDropEvent`) or file-picker; copied into the engagement directory with collision-safe naming; registered as cabinet items. Files already on disk but not in the cabinet show in an "On disk — not in cabinet" section with one-click Add.
+    * **Leadsheet links:** a cabinet item of `kind = 'leadsheet'` pointing at a `map:`/`group:` scope. Clicking navigates to the Leadsheets page and auto-opens that leadsheet (via `activeLeadsheetAtom`). This delivers part of the Phase 3 report→leadsheet deep-link early.
+    * Open files with the system default app (`opener` crate); remove-from-cabinet vs delete-from-disk are distinct; locked engagements suppress destructive actions; all row actions via right-click context menu.
 * **Single-File Compression & Sharing:** ✅ **Implemented** — `.wwp` export compresses the engagement directory into an AES-256-GCM encrypted ZIP. Password set by user at export time. Magic bytes `WWP1` for format versioning. Import decrypts and extracts back to a user-chosen directory.
 
 ### 3.2. Trial Balance, Mapping, & AJEs
@@ -34,8 +39,14 @@
 * **Roll-Forward Mechanics:** ✅ **Implemented** — Runs on a Rayon background thread. Balance sheet ending balances (post-AJE) become prior-year balances. P&L accounts zeroed. Map numbers, groupings, leadsheet notes, and custom variables all carry forward. AJEs do not carry forward (they belong to the closed year).
 
 ### 3.4. Programmatic Financial Statements & Reporting
-* **HTML/CSS Foundation:** ✅ **Implemented (skeleton)** — Report data assembled by Rust (map totals, custom vars, engagement meta) and handed to a Web Worker that generates HTML/CSS output.
-* **Dynamic Linking:** ✅ **Implemented** — Map number totals (unadjusted and AJE-adjusted), prior year, and custom variables all pulled from SQLite and embedded in report output.
+* **Programmable Report Engine:** ✅ **Implemented** — A statement is *data*, not a hardcoded template: a stored, ordered tree of typed lines (`statements` / `statement_lines` tables, migration 004). Each line is `HEADER | MAP | FORMULA | SUBTOTAL | VAR | SPACER`. Amounts come from an **expression mini-language** evaluated by the Rust engine (`report_engine.rs`):
+    * `M:code` — a single map total; `L:lineno` — another line's already-computed value (stable per-statement `line_no`, independent of sort order); `V:key` — a custom variable parsed numerically.
+    * `SUM(1000..1999)` — sums all map totals whose code sorts in the inclusive range.
+    * Arithmetic `+ - * / ( )` with unary minus. Evaluated **per axis** (current / prior) so refs resolve to the right column. `invert_sign` flips a line; `SUBTOTAL` with no expression sums its immediate children.
+* **Standard Statements as Editable Templates:** ✅ **Implemented** — `seed_default_statements` creates Balance Sheet, Income Statement, Statement of Cash Flows, and Statement of Equity on first visit (only if none exist), built entirely on the engine using map-code-range conventions. These are fully editable, not special-cased — and arbitrary `CUSTOM` statements can be authored the same way.
+* **Commands:** `list_statements`, `resolve_statement` (the core evaluator → `ResolvedStatement`), `upsert_statement` / `delete_statement`, `upsert_statement_line` / `delete_statement_line`, `reorder_statement_lines`, `seed_default_statements`.
+* **Rendering:** ✅ **Implemented** — Reports page resolves the selected statement and renders it in-page (depth indentation, bold/underline, current/prior columns, per-line formula error display). "Preview All" resolves every statement and a Web Worker (`reportRenderer.worker.ts`) builds a standalone printable HTML document opened in a new window.
+* **Statement Editor UI:** *(TODO — add/edit/reorder lines and formulas from the UI; backend CRUD already in place)*
 * **Automated Note Referencing:** *(TODO — Phase 2)*
 * **Export:** *(TODO — Phase 2, PDF via headless renderer)*
 
@@ -94,18 +105,21 @@
     * ✅ Year-end roll-forward (Rayon thread, new file, P&L zero, BS carry-forward)
     * ✅ `.wwp` export/import (AES-256-GCM encrypted ZIP)
     * ✅ Command palette (`Ctrl+K`), flat/monochrome design system, dark mode tokens
-    * ✅ File attachment panel (copy files into engagement directory, drag-and-drop, system-open, delete)
+    * ✅ Document Manager / file cabinet (virtual nested folders, pointer-drag reorganize, external attach, leadsheet links, system-open, context menu)
     * ✅ Recent files list on welcome screen (persisted in settings JSON, max 8, removable)
 
 * **Phase 2: The Reporting Engine**
-    * Develop full HTML/CSS financial statement templates (BS, IS, CF, equity)
+    * ✅ Programmable report engine (statements-as-data, expression mini-language `M:`/`L:`/`V:`/`SUM(range)`/arithmetic, per-axis resolution)
+    * ✅ Four standard statements (BS, IS, CF, equity) seeded as editable templates on the engine
+    * ✅ In-page resolved render + "Preview All" Web-Worker HTML document
+    * Statement editor UI (add/edit/reorder lines + formulas; backend CRUD already done)
     * FS note auto-numbering and cross-referencing
     * Custom variable editor UI
     * PDF export via headless renderer (Puppeteer/Playwright or `wkhtmltopdf`)
 
 * **Phase 3: Audit Mechanics & Workflow Polish**
     * Tickmark drop UI on leadsheet rows with symbol picker
-    * Deep-link: click a balance on a report → jump to the supporting leadsheet
+    * Deep-link: click a balance on a report → jump to the supporting leadsheet *(partially done — cabinet leadsheet-links already navigate via `activeLeadsheetAtom`; report→leadsheet still TODO)*
     * Cross-reference tags between documents
     * Full tickmark and sign-off UI pass
 

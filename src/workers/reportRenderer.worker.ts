@@ -1,76 +1,130 @@
-import type { ReportData } from "@/types";
+import type { ResolvedStatement, ResolvedLine } from "@/types";
+
+// Renders one or more resolved statements into a standalone, printable HTML
+// document. Runs off the main thread so the UI stays responsive while building
+// large statement sets. Each statement is already fully evaluated by the Rust
+// engine — this worker only formats numbers and lays out the DOM.
 
 self.onmessage = (e: MessageEvent) => {
   if (e.data.type !== "RENDER") return;
 
-  const data: ReportData = e.data.data;
-  const { engagement, map_totals, custom_vars } = data;
+  const statements: ResolvedStatement[] = e.data.statements;
+  if (!statements || statements.length === 0) {
+    self.postMessage({ type: "RENDERED", html: "<p>No statements to render.</p>" });
+    return;
+  }
 
-  const fmtCur = (v: number) =>
+  // Engagement is shared across all statements in a set.
+  const engagement = statements[0].engagement;
+
+  const fmt = (v: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: engagement.currency,
       minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(Math.abs(v));
 
-  const row = (label: string, current: number, prior: number, bold = false) => `
-    <tr class="${bold ? "subtotal" : ""}">
-      <td class="label">${label}</td>
-      <td class="amount ${current < 0 ? "neg" : ""}">${current < 0 ? `(${fmtCur(current)})` : fmtCur(current)}</td>
-      <td class="amount ${prior < 0 ? "neg" : ""}">${prior < 0 ? `(${fmtCur(prior)})` : fmtCur(prior)}</td>
+  const amount = (v: number | null) => {
+    if (v === null) return "";
+    const s = fmt(v);
+    return v < 0 ? `<span class="neg">(${s})</span>` : s;
+  };
+
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lineRow = (l: ResolvedLine): string => {
+    if (l.line_type === "SPACER") {
+      return `<tr class="spacer"><td colspan="3">&nbsp;</td></tr>`;
+    }
+    if (l.line_type === "HEADER") {
+      return `<tr class="header${l.bold ? " bold" : ""}">
+        <td class="label" style="padding-left:${8 + l.depth * 16}px">${esc(l.label)}</td>
+        <td></td><td></td>
+      </tr>`;
+    }
+
+    const cls = [
+      l.line_type === "SUBTOTAL" ? "subtotal" : "",
+      l.bold ? "bold" : "",
+      l.underline ? "underline" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    if (l.error) {
+      return `<tr class="${cls}">
+        <td class="label" style="padding-left:${8 + l.depth * 16}px">${esc(l.label)}</td>
+        <td class="amount err" colspan="2">⚠ ${esc(l.error)}</td>
+      </tr>`;
+    }
+
+    if (l.line_type === "VAR") {
+      return `<tr class="${cls}">
+        <td class="label" style="padding-left:${8 + l.depth * 16}px">${esc(l.label)}</td>
+        <td class="amount" colspan="2">${esc(l.text ?? "")}</td>
+      </tr>`;
+    }
+
+    return `<tr class="${cls}">
+      <td class="label" style="padding-left:${8 + l.depth * 16}px">${esc(l.label)}</td>
+      <td class="amount">${amount(l.current)}</td>
+      <td class="amount">${l.show_prior ? amount(l.prior) : ""}</td>
     </tr>`;
+  };
+
+  const statementBlock = (s: ResolvedStatement): string => `
+    <section class="statement">
+      <h2>${esc(s.name)}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th class="label">&nbsp;</th>
+            <th class="amount">Current</th>
+            <th class="amount">Prior</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${s.lines.map(lineRow).join("")}
+        </tbody>
+      </table>
+    </section>`;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>${engagement.entity_name} — Financial Statements</title>
+<title>${esc(engagement.entity_name)} — Financial Statements</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #000; margin: 40px; }
-  h1 { font-size: 16px; margin-bottom: 2px; }
-  .subtitle { color: #555; font-size: 11px; margin-bottom: 24px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 32px; }
-  th { border-bottom: 2px solid #000; padding: 4px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
-  th.amount, td.amount { text-align: right; font-family: monospace; }
-  td { padding: 3px 8px; border-bottom: 1px solid #ddd; }
-  tr.subtotal td { border-top: 2px solid #000; font-weight: 700; }
+  h1 { font-size: 18px; margin-bottom: 2px; }
+  .subtitle { color: #555; font-size: 11px; margin-bottom: 28px; }
+  .statement { margin-bottom: 40px; page-break-inside: avoid; }
+  h2 { font-size: 14px; margin: 0 0 8px; border-bottom: 2px solid #000; padding-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { padding: 4px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #555; border-bottom: 1px solid #999; }
+  th.amount, td.amount { text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", Consolas, monospace; }
+  td { padding: 3px 8px; }
+  tr.header td { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #333; padding-top: 8px; }
+  tr.header.bold td { font-weight: 700; color: #000; }
+  tr.subtotal td { border-top: 1px solid #000; font-weight: 600; }
+  tr.bold td { font-weight: 700; }
+  tr.underline td { border-bottom: 2.5px double #000; }
+  tr.spacer td { height: 8px; }
   .neg { color: #c00; }
+  .err { color: #c00; font-size: 11px; }
   .label { width: 60%; }
+  footer { font-size: 10px; color: #999; margin-top: 40px; border-top: 1px solid #ddd; padding-top: 8px; }
 </style>
 </head>
 <body>
-  <h1>${engagement.entity_name}</h1>
-  <div class="subtitle">Year Ended ${engagement.year_end} — ${engagement.currency}</div>
-
-  <table>
-    <thead>
-      <tr>
-        <th class="label">Map Number</th>
-        <th class="amount">Current Year (Adj)</th>
-        <th class="amount">Prior Year</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${map_totals.map((m) => row(
-        `${m.map_number} — ${m.label}`,
-        m.adjusted_current,
-        m.prior_total
-      )).join("")}
-    </tbody>
-  </table>
-
-  ${custom_vars.length > 0 ? `
-  <h2 style="font-size:13px;margin-bottom:8px;">Custom Variables</h2>
-  <table>
-    <thead><tr><th>Key</th><th>Value</th><th>Description</th></tr></thead>
-    <tbody>
-      ${custom_vars.map((v) => `<tr><td class="mono">${v.key}</td><td>${v.value}</td><td style="color:#555">${v.description ?? ""}</td></tr>`).join("")}
-    </tbody>
-  </table>` : ""}
-
-  <div style="font-size:10px;color:#999;margin-top:40px;border-top:1px solid #ddd;padding-top:8px;">
-    Generated by Worked Papers — ${new Date().toLocaleDateString()}
-  </div>
+  <h1>${esc(engagement.entity_name)}</h1>
+  <div class="subtitle">Year Ended ${esc(engagement.year_end)} — ${esc(engagement.currency)}${
+    engagement.is_locked ? " — LOCKED" : ""
+  }</div>
+  ${statements.map(statementBlock).join("")}
+  <footer>Generated by Worked Papers — ${new Date().toLocaleDateString()}</footer>
 </body>
 </html>`;
 

@@ -28,12 +28,17 @@ pub async fn get_leadsheet(
              FROM tb_accounts WHERE map_number = ?1 ORDER BY account_number",
         )?;
         let rows = stmt.query_map(params![map], |r| {
+            let prelim: f64 = r.get(3)?;
             Ok(TbAccount {
                 id: r.get(0)?,
                 account_number: r.get(1)?,
                 account_name: r.get(2)?,
-                current_balance: r.get(3)?,
+                prelim_balance: prelim,
                 prior_balance: r.get(4)?,
+                adjustment_net: 0.0,
+                reclass_net: 0.0,
+                tax_net: 0.0,
+                current_balance: prelim,
                 map_number: r.get(5)?,
                 grouping_ids: vec![],
                 notes: r.get(6)?,
@@ -49,12 +54,17 @@ pub async fn get_leadsheet(
              WHERE ag.grouping_id = ?1 ORDER BY a.account_number",
         )?;
         let rows = stmt.query_map(params![gid], |r| {
+            let prelim: f64 = r.get(3)?;
             Ok(TbAccount {
                 id: r.get(0)?,
                 account_number: r.get(1)?,
                 account_name: r.get(2)?,
-                current_balance: r.get(3)?,
+                prelim_balance: prelim,
                 prior_balance: r.get(4)?,
+                adjustment_net: 0.0,
+                reclass_net: 0.0,
+                tax_net: 0.0,
+                current_balance: prelim,
                 map_number: r.get(5)?,
                 grouping_ids: vec![gid],
                 notes: r.get(6)?,

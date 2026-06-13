@@ -38,3 +38,6 @@ Thumbs.db
 
 # Test data (real client files, never commit)
 testdata/
+
+# Debug / diagnostic scripts (local only)
+debug/

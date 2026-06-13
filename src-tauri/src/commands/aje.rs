@@ -189,10 +189,13 @@ pub async fn get_aje_impact(
              a.account_number,
              a.account_name,
              a.current_balance,
-             COALESCE(SUM(l.debit - l.credit), 0.0) AS aje_net
+             COALESCE(SUM(j.debit - j.credit), 0.0) AS aje_net
          FROM tb_accounts a
-         LEFT JOIN aje_lines l ON l.account_number = a.account_number
-         LEFT JOIN ajes j      ON j.id = l.aje_id AND j.is_voided = 0
+         LEFT JOIN (
+             SELECT l.account_number, l.debit, l.credit
+             FROM aje_lines l
+             JOIN ajes ON ajes.id = l.aje_id AND ajes.is_voided = 0
+         ) j ON j.account_number = a.account_number
          GROUP BY a.account_number
          HAVING aje_net != 0.0
          ORDER BY a.account_number",

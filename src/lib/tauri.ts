@@ -14,7 +14,9 @@ import type {
   Leadsheet,
   MapNumber,
   ReportData,
+  ResolvedStatement,
   Signoff,
+  Statement,
   TbAccount,
   TbSummary,
 } from "@/types";
@@ -132,6 +134,44 @@ export const getAuditTrail = (limit?: number) =>
 // ─── Reports ─────────────────────────────────────────────────────────────────
 
 export const renderReportData = () => invoke<ReportData>("render_report_data");
+
+// ─── Report Engine (programmable statements) ──────────────────────────────────
+
+export const listStatements = () => invoke<Statement[]>("list_statements");
+
+export const resolveStatement = (statementId: number) =>
+  invoke<ResolvedStatement>("resolve_statement", { statementId });
+
+export const upsertStatement = (payload: {
+  id?: number | null;
+  name: string;
+  kind: string;
+}) => invoke<number>("upsert_statement", { payload });
+
+export const deleteStatement = (id: number) =>
+  invoke<void>("delete_statement", { id });
+
+export const upsertStatementLine = (payload: {
+  id?: number | null;
+  statement_id: number;
+  parent_id?: number | null;
+  line_type: string;
+  label: string;
+  expression?: string | null;
+  bold: boolean;
+  underline: boolean;
+  show_prior: boolean;
+  invert_sign: boolean;
+}) => invoke<number>("upsert_statement_line", { payload });
+
+export const deleteStatementLine = (id: number) =>
+  invoke<void>("delete_statement_line", { id });
+
+export const reorderStatementLines = (orderedIds: number[]) =>
+  invoke<void>("reorder_statement_lines", { orderedIds });
+
+export const seedDefaultStatements = () =>
+  invoke<number>("seed_default_statements");
 
 // ─── Archive (.wwp) ───────────────────────────────────────────────────────────
 
