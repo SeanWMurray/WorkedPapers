@@ -8,4 +8,5 @@ pub mod reports;
 pub mod rollforward;
 pub mod settings;
 pub mod signoff;
+pub mod templates;
 pub mod trial_balance;

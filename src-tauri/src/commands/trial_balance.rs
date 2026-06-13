@@ -115,6 +115,79 @@ pub async fn get_tb_accounts(
 }
 
 #[tauri::command]
+pub async fn update_account_meta(
+    old_account_number: String,
+    account_number: String,
+    account_name: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), AppError> {
+    let guard = state.db.lock().unwrap();
+    let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+
+    db.conn.execute(
+        "UPDATE tb_accounts SET account_number = ?1, account_name = ?2 WHERE account_number = ?3",
+        params![account_number, account_name, old_account_number],
+    )?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_account_balance(
+    account_number: String,
+    prelim_balance: f64,
+    prior_balance: f64,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), AppError> {
+    let guard = state.db.lock().unwrap();
+    let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+
+    db.conn.execute(
+        "UPDATE tb_accounts SET current_balance = ?1, prior_balance = ?2 WHERE account_number = ?3",
+        params![prelim_balance, prior_balance, account_number],
+    )?;
+
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAccountPayload {
+    pub account_number: String,
+    pub account_name: String,
+    pub prelim_balance: f64,
+    pub prior_balance: f64,
+    pub map_number: Option<String>,
+}
+
+#[tauri::command]
+pub async fn create_account(
+    payload: CreateAccountPayload,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), AppError> {
+    let guard = state.db.lock().unwrap();
+    let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+
+    db.conn.execute(
+        "INSERT INTO tb_accounts (account_number, account_name, current_balance, prior_balance, map_number)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(account_number) DO UPDATE SET
+           account_name    = excluded.account_name,
+           current_balance = excluded.current_balance,
+           prior_balance   = excluded.prior_balance,
+           map_number      = COALESCE(excluded.map_number, tb_accounts.map_number)",
+        params![
+            payload.account_number,
+            payload.account_name,
+            payload.prelim_balance,
+            payload.prior_balance,
+            payload.map_number,
+        ],
+    )?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn update_account_mapping(
     account_number: String,
     map_number: Option<String>,

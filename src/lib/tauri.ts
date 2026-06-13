@@ -9,11 +9,17 @@ import type {
   CabinetFolder,
   CabinetItem,
   CabinetTree,
+  DocAsset,
+  DocPackage,
+  DocPackageItem,
+  DocTemplate,
   EngagementMeta,
   Grouping,
   Leadsheet,
   MapNumber,
+  NoteInfo,
   ReportData,
+  RenderPackageResult,
   ResolvedStatement,
   Signoff,
   Statement,
@@ -54,6 +60,20 @@ export const getTbAccounts = () => invoke<TbAccount[]>("get_tb_accounts");
 
 export const updateAccountMapping = (accountNumber: string, mapNumber: string | null) =>
   invoke<void>("update_account_mapping", { accountNumber, mapNumber });
+
+export const updateAccountMeta = (oldAccountNumber: string, accountNumber: string, accountName: string) =>
+  invoke<void>("update_account_meta", { oldAccountNumber, accountNumber, accountName });
+
+export const updateAccountBalance = (accountNumber: string, prelimBalance: number, priorBalance: number) =>
+  invoke<void>("update_account_balance", { accountNumber, prelimBalance, priorBalance });
+
+export const createAccount = (payload: {
+  account_number: string;
+  account_name: string;
+  prelim_balance: number;
+  prior_balance: number;
+  map_number?: string | null;
+}) => invoke<void>("create_account", { payload });
 
 export const getTbSummary = () => invoke<TbSummary>("get_tb_summary");
 
@@ -238,3 +258,85 @@ export const moveCabinetFolder = (id: number, parentId: number | null, afterId: 
 export const getSettings = () => invoke<AppSettings>("get_settings");
 export const saveSettings = (settings: AppSettings) =>
   invoke<void>("save_settings", { settings });
+
+// ─── Document Template Engine ─────────────────────────────────────────────────
+
+// Assets
+export const upsertDocAsset = (payload: {
+  id?: number | null;
+  name: string;
+  mime_type: string;
+  data_base64: string;
+  width_px?: number | null;
+  height_px?: number | null;
+}) => invoke<number>("upsert_doc_asset", { payload });
+
+export const listDocAssets = () => invoke<DocAsset[]>("list_doc_assets");
+
+export const deleteDocAsset = (id: number) =>
+  invoke<void>("delete_doc_asset", { id });
+
+// Templates
+export const upsertDocTemplate = (payload: {
+  id?: number | null;
+  name: string;
+  kind: string;
+  body_html: string;
+  description?: string | null;
+}) => invoke<number>("upsert_doc_template", { payload });
+
+export const listDocTemplates = () => invoke<DocTemplate[]>("list_doc_templates");
+
+export const getDocTemplate = (id: number) =>
+  invoke<DocTemplate>("get_doc_template", { id });
+
+export const deleteDocTemplate = (id: number) =>
+  invoke<void>("delete_doc_template", { id });
+
+// Packages
+export const upsertDocPackage = (payload: {
+  id?: number | null;
+  name: string;
+  description?: string | null;
+}) => invoke<number>("upsert_doc_package", { payload });
+
+export const listDocPackages = () => invoke<DocPackage[]>("list_doc_packages");
+
+export const deleteDocPackage = (id: number) =>
+  invoke<void>("delete_doc_package", { id });
+
+// Package items
+export const upsertPackageItem = (payload: {
+  id?: number | null;
+  package_id: number;
+  sort_order: number;
+  item_kind: "template" | "statement";
+  doc_template_id?: number | null;
+  statement_id?: number | null;
+  var_overrides?: string;
+}) => invoke<number>("upsert_package_item", { payload });
+
+export const listPackageItems = (packageId: number) =>
+  invoke<DocPackageItem[]>("list_package_items", { packageId });
+
+export const reorderPackageItems = (orderedIds: number[]) =>
+  invoke<void>("reorder_package_items", { orderedIds });
+
+export const deletePackageItem = (id: number) =>
+  invoke<void>("delete_package_item", { id });
+
+// Rendering
+export const renderPackage = (packageId: number) =>
+  invoke<RenderPackageResult>("render_package", { packageId });
+
+export const renderTemplate = (bodyHtml: string) =>
+  invoke<string>("render_template", { bodyHtml });
+
+export const getNoteRegistry = (packageId: number) =>
+  invoke<NoteInfo[]>("get_note_registry", { packageId });
+
+export const listAllNoteKeys = () =>
+  invoke<NoteInfo[]>("list_all_note_keys");
+
+export const seedDefaultTemplates = () =>
+  invoke<number>("seed_default_templates");

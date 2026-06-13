@@ -10,6 +10,7 @@ import TrialBalancePage from "@/pages/TrialBalancePage";
 import AjePage from "@/pages/AjePage";
 import LeadsheetPage from "@/pages/LeadsheetPage";
 import MappingPage from "@/pages/MappingPage";
+import DocumentsPage from "@/pages/DocumentsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import FilesPage from "@/pages/FilesPage";
 import AuditPage from "@/pages/AuditPage";
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="/leadsheet" element={<LeadsheetPage />} />
             <Route path="/mapping" element={<MappingPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/files" element={<FilesPage />} />
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/settings" element={<SettingsPage />} />

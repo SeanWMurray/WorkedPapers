@@ -1,13 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
 import { useAtom } from "jotai";
 import { mapNumbersAtom, groupingsAtom, settingsAtom, engagementAtom, activeLeadsheetAtom } from "@/store/atoms";
-import { getLeadsheet, saveLeadsheetNote, signOff } from "@/lib/tauri";
+import { getLeadsheet, listMapNumbers, listGroupings, saveLeadsheetNote, signOff } from "@/lib/tauri";
 import { formatAccounting } from "@/lib/format";
 import type { Leadsheet } from "@/types";
 
 export default function LeadsheetPage() {
-  const [mapNumbers] = useAtom(mapNumbersAtom);
-  const [groupings] = useAtom(groupingsAtom);
+  const [mapNumbers, setMapNumbers] = useAtom(mapNumbersAtom);
+  const [groupings, setGroupings] = useAtom(groupingsAtom);
   const [settings] = useAtom(settingsAtom);
   const [engagement] = useAtom(engagementAtom);
   const [activeLeadsheet, setActiveLeadsheet] = useAtom(activeLeadsheetAtom);
@@ -17,6 +17,18 @@ export default function LeadsheetPage() {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Ensure map numbers and groupings are loaded regardless of whether MappingPage has been visited
+  useEffect(() => {
+    if (mapNumbers.length === 0 || groupings.length === 0) {
+      Promise.all([listMapNumbers(), listGroupings()])
+        .then(([maps, grps]) => {
+          if (mapNumbers.length === 0) setMapNumbers(maps);
+          if (groupings.length === 0) setGroupings(grps);
+        })
+        .catch(() => {});
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Consume a pending navigation request from the file cabinet
   useEffect(() => {

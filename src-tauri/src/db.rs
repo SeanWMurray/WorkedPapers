@@ -68,6 +68,11 @@ impl AppDb {
             self.conn.execute("INSERT INTO schema_version (version) VALUES (4)", [])?;
         }
 
+        if version < 5 {
+            self.conn.execute_batch(include_str!("../migrations/005_document_templates.sql"))?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
+        }
+
         Ok(())
     }
 

@@ -199,6 +199,57 @@ export interface ResolvedStatement {
   lines: ResolvedLine[];
 }
 
+// ─── Document Template Engine ─────────────────────────────────────────────────
+
+export interface DocAsset {
+  id: number;
+  name: string;
+  mime_type: string;
+  data_base64: string;
+  width_px: number | null;
+  height_px: number | null;
+}
+
+export interface DocTemplate {
+  id: number;
+  name: string;
+  /** COVER | LETTER | NOTES | FS_EMBED | CUSTOM */
+  kind: string;
+  body_html: string;
+  description: string | null;
+  is_system: boolean;
+}
+
+export interface DocPackage {
+  id: number;
+  name: string;
+  description: string | null;
+}
+
+export interface DocPackageItem {
+  id: number;
+  package_id: number;
+  sort_order: number;
+  /** "template" | "statement" */
+  item_kind: string;
+  doc_template_id: number | null;
+  statement_id: number | null;
+  /** JSON string of per-item variable overrides */
+  var_overrides: string;
+}
+
+export interface NoteInfo {
+  note_key: string;
+  note_number: number;
+  title: string | null;
+}
+
+export interface RenderPackageResult {
+  fragments: string[];
+  note_registry: NoteInfo[];
+  engagement: EngagementMeta;
+}
+
 export interface AppSettings {
   user_name: string;
   user_initials: string;

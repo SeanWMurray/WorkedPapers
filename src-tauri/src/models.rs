@@ -240,6 +240,62 @@ pub struct ResolvedLine {
     pub error: Option<String>,  // formula/reference error, if any
 }
 
+// ─── Document Template Engine ────────────────────────────────────────────────
+// Free-form HTML templates with {{ }} tag expansion. Templates are assembled
+// into ordered packages that render as a single printable document.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocAsset {
+    pub id: i64,
+    pub name: String,
+    pub mime_type: String,
+    pub data_base64: String,
+    pub width_px: Option<i64>,
+    pub height_px: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocTemplate {
+    pub id: i64,
+    pub name: String,
+    pub kind: String,           // COVER | LETTER | NOTES | FS_EMBED | CUSTOM
+    pub body_html: String,
+    pub description: Option<String>,
+    pub is_system: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocPackage {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocPackageItem {
+    pub id: i64,
+    pub package_id: i64,
+    pub sort_order: i32,
+    pub item_kind: String,      // "template" | "statement"
+    pub doc_template_id: Option<i64>,
+    pub statement_id: Option<i64>,
+    pub var_overrides: String,  // JSON text
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteInfo {
+    pub note_key: String,
+    pub note_number: i32,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderPackageResult {
+    pub fragments: Vec<String>,
+    pub note_registry: Vec<NoteInfo>,
+    pub engagement: EngagementMeta,
+}
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
