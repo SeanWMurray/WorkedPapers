@@ -88,6 +88,13 @@ export const postAje = (payload: {
   lines: { account_number: string; debit: number; credit: number; description?: string }[];
 }) => invoke<number>("post_aje", { payload });
 
+export const updateAje = (ajeId: number, payload: {
+  entry_type: string;
+  description: string;
+  prepared_by: string;
+  lines: { account_number: string; debit: number; credit: number; description?: string }[];
+}) => invoke<void>("update_aje", { ajeId, payload });
+
 export const voidAje = (ajeId: number, reason: string, voidedBy: string) =>
   invoke<void>("void_aje", { ajeId, reason, voidedBy });
 
@@ -158,6 +165,9 @@ export const getSignoffs = (scope?: string) =>
 
 export const lockEngagement = (lockedBy: string) =>
   invoke<string>("lock_engagement", { lockedBy });
+
+export const verifyIntegrity = () =>
+  invoke<string>("verify_integrity");
 
 export const getAuditTrail = (limit?: number) =>
   invoke<AuditEntry[]>("get_audit_trail", { limit: limit ?? null });

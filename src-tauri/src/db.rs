@@ -88,6 +88,11 @@ impl AppDb {
             self.conn.execute("INSERT INTO schema_version (version) VALUES (8)", [])?;
         }
 
+        if version < 9 {
+            self.conn.execute_batch(include_str!("../migrations/009_lock_metadata.sql"))?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (9)", [])?;
+        }
+
         Ok(())
     }
 

@@ -437,6 +437,8 @@ pub async fn upsert_statement(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
 
     if let Some(id) = payload.id {
         db.conn.execute(
@@ -465,6 +467,8 @@ pub async fn delete_statement(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
     db.conn.execute("DELETE FROM statements WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -490,6 +494,8 @@ pub async fn upsert_statement_line(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
 
     if let Some(id) = payload.id {
         db.conn.execute(
@@ -538,6 +544,8 @@ pub async fn delete_statement_line(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
     db.conn.execute("DELETE FROM statement_lines WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -550,6 +558,8 @@ pub async fn reorder_statement_lines(
 ) -> std::result::Result<(), AppError> {
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
     db.transaction(|conn| {
         for (i, id) in ordered_ids.iter().enumerate() {
             conn.execute(

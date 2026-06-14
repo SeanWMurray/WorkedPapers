@@ -153,6 +153,8 @@ pub async fn save_leadsheet_note(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
 
     db.conn.execute(
         "INSERT INTO leadsheet_notes (scope, content, updated_by, updated_at)
@@ -177,6 +179,8 @@ pub async fn add_tickmark(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
 
     db.conn.execute(
         "INSERT INTO tickmarks (symbol, description, anchor, created_by, created_at)
@@ -194,6 +198,8 @@ pub async fn remove_tickmark(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+    if is_locked != 0 { return Err(AppError::EngagementLocked); }
 
     db.conn.execute("DELETE FROM tickmarks WHERE id = ?1", params![id])?;
     Ok(())

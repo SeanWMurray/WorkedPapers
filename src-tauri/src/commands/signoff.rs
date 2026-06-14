@@ -80,6 +80,7 @@ pub async fn get_signoffs(
 }
 
 /// Cryptographically seal the engagement — no edits allowed after this.
+/// The seal hash covers all material financial data so tampering is detectable.
 #[tauri::command]
 pub async fn lock_engagement(
     locked_by: String,
@@ -89,13 +90,12 @@ pub async fn lock_engagement(
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
 
     let now = Utc::now().to_rfc3339();
-    let seal_input = format!("LOCK|{locked_by}|{now}|{}", db.path);
-    let seal_hash = format!("{:x}", Sha256::digest(seal_input.as_bytes()));
+    let seal_hash = compute_content_hash(&db.conn)?;
 
     db.transaction(|conn| {
         conn.execute(
-            "UPDATE engagement SET is_locked = 1, lock_hash = ?1, updated_at = ?2",
-            params![seal_hash, now],
+            "UPDATE engagement SET is_locked = 1, lock_hash = ?1, locked_by = ?2, locked_at = ?3, updated_at = ?3",
+            params![seal_hash, locked_by, now],
         )?;
 
         AppDb::audit(
@@ -109,6 +109,144 @@ pub async fn lock_engagement(
 
         Ok(seal_hash)
     })
+}
+
+/// Recompute the content hash and compare against the stored seal.
+/// Returns the stored hash if it matches, or an error describing the mismatch.
+#[tauri::command]
+pub async fn verify_integrity(
+    state: State<'_, AppState>,
+) -> std::result::Result<String, AppError> {
+    let guard = state.db.lock().unwrap();
+    let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
+
+    let stored_hash: Option<String> = db.conn.query_row(
+        "SELECT lock_hash FROM engagement LIMIT 1",
+        [],
+        |r| r.get(0),
+    )?;
+
+    let stored_hash = stored_hash.ok_or_else(|| {
+        AppError::Other("Engagement has not been locked — no seal hash to verify".into())
+    })?;
+
+    let current_hash = compute_content_hash(&db.conn)?;
+
+    if current_hash == stored_hash {
+        Ok(stored_hash)
+    } else {
+        Err(AppError::Other(format!(
+            "Integrity check FAILED.\nStored:  {stored_hash}\nCurrent: {current_hash}\nThe engagement data has been modified after locking."
+        )))
+    }
+}
+
+/// SHA-256 over all material financial data rows, in deterministic order.
+fn compute_content_hash(conn: &rusqlite::Connection) -> std::result::Result<String, AppError> {
+    use std::fmt::Write as _;
+    let mut hasher = Sha256::new();
+
+    // Trial balance accounts + balances
+    {
+        let mut stmt = conn.prepare(
+            "SELECT account_number, account_name, current_balance, prior_balance, map_number
+             FROM tb_accounts ORDER BY account_number",
+        )?;
+        stmt.query_map([], |r| {
+            Ok(format!(
+                "TB|{}|{}|{}|{}|{}\n",
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, f64>(2)?,
+                r.get::<_, f64>(3)?,
+                r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            ))
+        })?
+        .try_for_each(|r| -> std::result::Result<(), AppError> {
+            hasher.update(r?.as_bytes());
+            Ok(())
+        })?;
+    }
+
+    // AJE headers
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id, entry_type, description, posted_at, is_voided
+             FROM ajes ORDER BY id",
+        )?;
+        stmt.query_map([], |r| {
+            Ok(format!(
+                "AJE|{}|{}|{}|{}|{}\n",
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?
+        .try_for_each(|r| -> std::result::Result<(), AppError> {
+            hasher.update(r?.as_bytes());
+            Ok(())
+        })?;
+    }
+
+    // AJE lines
+    {
+        let mut stmt = conn.prepare(
+            "SELECT aje_id, account_number, debit, credit
+             FROM aje_lines ORDER BY aje_id, id",
+        )?;
+        stmt.query_map([], |r| {
+            Ok(format!(
+                "AJELINE|{}|{}|{}|{}\n",
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, f64>(2)?,
+                r.get::<_, f64>(3)?,
+            ))
+        })?
+        .try_for_each(|r| -> std::result::Result<(), AppError> {
+            hasher.update(r?.as_bytes());
+            Ok(())
+        })?;
+    }
+
+    // Map numbers
+    {
+        let mut stmt = conn.prepare(
+            "SELECT code, label, parent_code, sort_order FROM map_numbers ORDER BY code",
+        )?;
+        stmt.query_map([], |r| {
+            Ok(format!(
+                "MAP|{}|{}|{}|{}\n",
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                r.get::<_, i64>(3)?,
+            ))
+        })?
+        .try_for_each(|r| -> std::result::Result<(), AppError> {
+            hasher.update(r?.as_bytes());
+            Ok(())
+        })?;
+    }
+
+    // Engagement header
+    {
+        let row: String = conn.query_row(
+            "SELECT entity_name || '|' || year_end || '|' || fiscal_year || '|' || currency
+             FROM engagement LIMIT 1",
+            [],
+            |r| r.get(0),
+        )?;
+        hasher.update(format!("ENG|{row}\n").as_bytes());
+    }
+
+    let mut hex = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        write!(hex, "{byte:02x}").unwrap();
+    }
+    Ok(hex)
 }
 
 #[tauri::command]

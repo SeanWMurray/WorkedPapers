@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAtom } from "jotai";
 import { settingsAtom, engagementAtom } from "@/store/atoms";
-import { saveSettings, lockEngagement, rollForward, exportWwp, save } from "@/lib/tauri";
+import { saveSettings, lockEngagement, verifyIntegrity, rollForward, exportWwp, save } from "@/lib/tauri";
 import type { AppSettings } from "@/types";
 
 export default function SettingsPage() {
@@ -9,6 +9,7 @@ export default function SettingsPage() {
   const [engagement, setEngagement] = useAtom(engagementAtom);
   const [local, setLocal] = useState<AppSettings>({ ...settings });
   const [saved, setSaved] = useState(false);
+  const [showLockModal, setShowLockModal] = useState(false);
 
   const handleSave = async () => {
     await saveSettings(local);
@@ -17,12 +18,21 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleLock = async () => {
+  const handleLockConfirmed = async () => {
     if (!engagement) return;
-    if (!confirm("Lock this engagement? This cannot be undone.")) return;
     const hash = await lockEngagement(local.user_name);
     setEngagement({ ...engagement, is_locked: true });
+    setShowLockModal(false);
     alert(`Engagement locked.\nSeal hash: ${hash}`);
+  };
+
+  const handleVerifyIntegrity = async () => {
+    try {
+      const hash = await verifyIntegrity();
+      alert(`Integrity check passed.\nSeal: ${hash}`);
+    } catch (e) {
+      alert(String(e));
+    }
   };
 
   const handleExportWwp = async () => {
@@ -120,15 +130,95 @@ export default function SettingsPage() {
                   <button className="btn" onClick={handleRollForward}>
                     Year-End Roll-Forward…
                   </button>
-                  <button className="btn btn-danger" onClick={handleLock}>
+                  <button className="btn btn-danger" onClick={() => setShowLockModal(true)}>
                     Lock Engagement (Seal)
                   </button>
                 </>
+              )}
+              {engagement.is_locked && (
+                <button className="btn" onClick={handleVerifyIntegrity}>
+                  Verify Integrity Seal
+                </button>
               )}
             </div>
           </section>
         )}
 
+      </div>
+
+      {showLockModal && (
+        <LockConfirmModal
+          entityName={engagement?.entity_name ?? "this engagement"}
+          onConfirm={handleLockConfirmed}
+          onCancel={() => setShowLockModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function LockConfirmModal({
+  entityName,
+  onConfirm,
+  onCancel,
+}: {
+  entityName: string;
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [locking, setLocking] = useState(false);
+  const ready = value === "CONFIRMED";
+
+  const handleConfirm = async () => {
+    if (!ready) return;
+    setLocking(true);
+    try {
+      await onConfirm();
+    } finally {
+      setLocking(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1000,
+      background: "rgba(0,0,0,0.6)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div style={{
+        background: "var(--color-bg)", border: "1px solid var(--color-border)",
+        borderRadius: 6, padding: 28, width: 420,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+      }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>Lock Engagement</div>
+        <p style={{ fontSize: 13, color: "var(--color-text-muted)", marginBottom: 16, lineHeight: 1.5 }}>
+          You are about to lock <strong style={{ color: "var(--color-text)" }}>{entityName}</strong>.
+          Once locked, no further changes can be made to the trial balance, journal entries, or any other data.
+          This cannot be undone.
+        </p>
+        <p style={{ fontSize: 13, marginBottom: 8 }}>
+          Type <strong>CONFIRMED</strong> to proceed:
+        </p>
+        <input
+          className="input"
+          style={{ width: "100%", marginBottom: 16, fontFamily: "var(--font-mono)" }}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && ready) handleConfirm(); }}
+          placeholder="CONFIRMED"
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button className="btn" onClick={onCancel} disabled={locking}>Cancel</button>
+          <button
+            className="btn btn-danger"
+            onClick={handleConfirm}
+            disabled={!ready || locking}
+          >
+            {locking ? "Locking…" : "Lock Engagement"}
+          </button>
+        </div>
       </div>
     </div>
   );

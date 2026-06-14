@@ -6,7 +6,7 @@ import {
   updateAccountMapping, updateAccountMeta, updateAccountBalance, createAccount, open,
 } from "@/lib/tauri";
 import { readTextFile } from "@tauri-apps/api/fs";
-import { formatAccounting, formatNumber } from "@/lib/format";
+import { formatAccounting } from "@/lib/format";
 import { FixedSizeList as List } from "react-window";
 import Papa from "papaparse";
 import TbImportWizard, { type ImportRow } from "@/components/ui/TbImportWizard";
@@ -307,12 +307,13 @@ function TbSummaryBar({ summary, currency }: { summary: TbSummary; currency: str
 // ── Inline editable cell ──────────────────────────────────────────────────────
 
 function EditableCell({
-  value, width, numeric, right, onCommit,
+  value, width, numeric, right, currency, onCommit,
 }: {
   value: string | number;
   width: number;
   numeric?: boolean;
   right?: boolean;
+  currency?: string;
   onCommit: (v: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -375,7 +376,7 @@ function EditableCell({
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
       }}
     >
-      {numeric ? formatNumber(value as number) : value}
+      {numeric ? formatAccounting(value as number, currency ?? "USD") : value}
     </div>
   );
 }
@@ -445,7 +446,7 @@ function VirtualTbGrid({
           <EditableCell
             value={a.prior_balance}
             width={COL_WIDTHS.prior}
-            numeric right
+            numeric right currency={currency}
             onCommit={(v) => onBalanceChange(a.account_number, a.prelim_balance, parseFloat(v) || 0)}
           />
         )}
@@ -458,7 +459,7 @@ function VirtualTbGrid({
           <EditableCell
             value={a.prelim_balance}
             width={COL_WIDTHS.prelim}
-            numeric right
+            numeric right currency={currency}
             onCommit={(v) => onBalanceChange(a.account_number, parseFloat(v) || 0, a.prior_balance)}
           />
         )}

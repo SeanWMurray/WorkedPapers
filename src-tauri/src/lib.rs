@@ -35,6 +35,7 @@ pub fn run() {
             // Adjusting Journal Entries
             commands::aje::list_ajes,
             commands::aje::post_aje,
+            commands::aje::update_aje,
             commands::aje::void_aje,
             commands::aje::get_aje_impact,
             // Mapping & Groupings
@@ -55,6 +56,7 @@ pub fn run() {
             commands::signoff::remove_signoff,
             commands::signoff::get_signoffs,
             commands::signoff::lock_engagement,
+            commands::signoff::verify_integrity,
             commands::signoff::get_audit_trail,
             // Reports
             commands::reports::render_report_data,
