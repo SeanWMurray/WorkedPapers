@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { engagementAtom, settingsAtom } from "@/store/atoms";
-import { openEngagement, createEngagement, open, save, getSettings, saveSettings } from "@/lib/tauri";
+import { openEngagement, createEngagement, importWwp, open, save, getSettings, saveSettings } from "@/lib/tauri";
 import type { AppSettings } from "@/types";
 
 type Mode = "home" | "create";
@@ -83,6 +83,30 @@ export default function WelcomePage() {
     }
   };
 
+  const handleImportWwp = async () => {
+    const wwpPath = await open({
+      title: "Open .wwp Archive",
+      filters: [{ name: "Worked Papers Archive", extensions: ["wwp"] }],
+    });
+    if (!wwpPath || Array.isArray(wwpPath)) return;
+
+    const targetDir = await open({
+      title: "Choose folder to extract into",
+      directory: true,
+    });
+    if (!targetDir || Array.isArray(targetDir)) return;
+
+    const password = prompt("Enter archive password:");
+    if (!password) return;
+
+    try {
+      const dbPath = await importWwp(wwpPath, targetDir, password);
+      await openPath(dbPath);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const handleRemoveRecent = async (path: string) => {
     const updated = {
       ...settings,
@@ -121,6 +145,9 @@ export default function WelcomePage() {
             </button>
             <button className="btn" style={{ height: 36 }} onClick={() => { setMode("create"); setError(null); }}>
               New Engagement…
+            </button>
+            <button className="btn" style={{ height: 36 }} onClick={handleImportWwp}>
+              Import .wwp Archive…
             </button>
           </div>
 

@@ -14,7 +14,7 @@ Contact me on LinkedIn if you want help setting this up, always happy to meet ot
 
 ![Trial balance](screenshots/Screenshot%202026-06-13%20172605.png)
 
-**Rendered balance sheet from the document engine**
+**Rendered balance sheet from the document engine (errors in note referencing intentional - references notes not yet defined)**
 
 ![Balance sheet document](screenshots/Screenshot%202026-06-13%20173757.png)
 
