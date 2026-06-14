@@ -249,10 +249,11 @@ export const deleteFolder = (id: number) =>
 export const upsertCabinetItem = (payload: {
   id?: number | null;
   folder_id: number | null;
-  kind: "file" | "leadsheet";
+  kind: "file" | "leadsheet" | "document";
   display_name: string;
   file_path?: string | null;
   leadsheet_scope?: string | null;
+  doc_template_id?: number | null;
 }) => invoke<CabinetItem>("upsert_cabinet_item", { payload });
 
 export const deleteCabinetItem = (id: number) =>
@@ -342,6 +343,10 @@ export const renderPackage = (packageId: number) =>
 
 export const renderTemplate = (bodyHtml: string) =>
   invoke<string>("render_template", { bodyHtml });
+
+
+export const exportPdf = (html: string) =>
+  invoke<string>("export_pdf", { html });
 
 export const getNoteRegistry = (packageId: number) =>
   invoke<NoteInfo[]>("get_note_registry", { packageId });

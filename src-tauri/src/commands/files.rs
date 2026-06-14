@@ -30,10 +30,11 @@ pub struct CabinetFolder {
 pub struct CabinetItem {
     pub id: i64,
     pub folder_id: Option<i64>,
-    pub kind: String, // "file" | "leadsheet"
+    pub kind: String, // "file" | "leadsheet" | "document"
     pub display_name: String,
     pub file_path: Option<String>,
     pub leadsheet_scope: Option<String>,
+    pub doc_template_id: Option<i64>,
     pub sort_order: i64,
 }
 
@@ -216,7 +217,7 @@ pub async fn get_cabinet(
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     let mut item_stmt = db.conn.prepare(
-        "SELECT id, folder_id, kind, display_name, file_path, leadsheet_scope, sort_order
+        "SELECT id, folder_id, kind, display_name, file_path, leadsheet_scope, doc_template_id, sort_order
          FROM file_cabinet_items ORDER BY sort_order, display_name",
     )?;
     let items = item_stmt
@@ -228,7 +229,8 @@ pub async fn get_cabinet(
                 display_name: r.get(3)?,
                 file_path: r.get(4)?,
                 leadsheet_scope: r.get(5)?,
-                sort_order: r.get(6)?,
+                doc_template_id: r.get(6)?,
+                sort_order: r.get(7)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -299,6 +301,7 @@ pub struct UpsertItemPayload {
     pub display_name: String,
     pub file_path: Option<String>,
     pub leadsheet_scope: Option<String>,
+    pub doc_template_id: Option<i64>,
 }
 
 #[tauri::command]
@@ -313,14 +316,15 @@ pub async fn upsert_cabinet_item(
         db.conn.execute(
             "UPDATE file_cabinet_items
              SET folder_id = ?1, kind = ?2, display_name = ?3,
-                 file_path = ?4, leadsheet_scope = ?5
-             WHERE id = ?6",
+                 file_path = ?4, leadsheet_scope = ?5, doc_template_id = ?6
+             WHERE id = ?7",
             params![
                 payload.folder_id,
                 payload.kind,
                 payload.display_name,
                 payload.file_path,
                 payload.leadsheet_scope,
+                payload.doc_template_id,
                 existing_id
             ],
         )?;
@@ -336,6 +340,7 @@ pub async fn upsert_cabinet_item(
             display_name: payload.display_name,
             file_path: payload.file_path,
             leadsheet_scope: payload.leadsheet_scope,
+            doc_template_id: payload.doc_template_id,
             sort_order,
         })
     } else {
@@ -346,14 +351,15 @@ pub async fn upsert_cabinet_item(
         )?;
         db.conn.execute(
             "INSERT INTO file_cabinet_items
-             (folder_id, kind, display_name, file_path, leadsheet_scope, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (folder_id, kind, display_name, file_path, leadsheet_scope, doc_template_id, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 payload.folder_id,
                 payload.kind,
                 payload.display_name,
                 payload.file_path,
                 payload.leadsheet_scope,
+                payload.doc_template_id,
                 next_sort
             ],
         )?;
@@ -365,6 +371,7 @@ pub async fn upsert_cabinet_item(
             display_name: payload.display_name,
             file_path: payload.file_path,
             leadsheet_scope: payload.leadsheet_scope,
+            doc_template_id: payload.doc_template_id,
             sort_order: next_sort,
         })
     }

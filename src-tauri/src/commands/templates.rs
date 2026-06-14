@@ -10,6 +10,137 @@ use rusqlite::params;
 use std::collections::HashMap;
 use tauri::State;
 
+// ── PDF export via WebView2 PrintToPdf ───────────────────────────────────────
+
+#[cfg(windows)]
+fn print_to_pdf_sync(win: &tauri::Window, pdf_path: &std::path::Path) -> std::result::Result<(), String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_7;
+    use windows::core::{Interface, PCWSTR};
+
+    let pdf_path_wstr: Vec<u16> = pdf_path
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0u16))
+        .collect();
+
+    let (tx, rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
+
+    win.with_webview(move |wv| {
+        unsafe {
+            let ctrl = wv.controller();
+            let core = match ctrl.CoreWebView2() {
+                Ok(c) => c,
+                Err(e) => { tx.send(Err(e.to_string())).ok(); return; }
+            };
+            // Cast ICoreWebView2 → ICoreWebView2_7 which has PrintToPdf
+            let wv7: ICoreWebView2_7 = match core.cast() {
+                Ok(v) => v,
+                Err(e) => { tx.send(Err(e.to_string())).ok(); return; }
+            };
+            let tx2 = tx.clone();
+            let result = webview2_com::PrintToPdfCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| {
+                    wv7.PrintToPdf(
+                        PCWSTR::from_raw(pdf_path_wstr.as_ptr()),
+                        None,
+                        windows::core::InParam::owned(handler),
+                    ).map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(move |hresult, success: bool| {
+                    if let Err(e) = hresult {
+                        tx2.send(Err(e.to_string())).ok();
+                    } else if !success {
+                        tx2.send(Err("PrintToPdf returned false".into())).ok();
+                    } else {
+                        tx2.send(Ok(())).ok();
+                    }
+                    Ok(())
+                }),
+            );
+            if let Err(e) = result {
+                tx.send(Err(e.to_string())).ok();
+            }
+        }
+    }).map_err(|e| e.to_string())?;
+
+    rx.recv_timeout(std::time::Duration::from_secs(30))
+        .map_err(|_| "PrintToPdf timed out".to_string())?
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub async fn export_pdf(html: String, app: tauri::AppHandle) -> std::result::Result<String, AppError> {
+    use tauri::Manager;
+
+    let html_path = std::env::temp_dir().join("workedpapers_print.html");
+    std::fs::write(&html_path, html.as_bytes())
+        .map_err(|e| AppError::Other(e.to_string()))?;
+
+    let pdf_path = std::env::temp_dir().join("workedpapers_print.pdf");
+    let _ = std::fs::remove_file(&pdf_path);
+
+    let fwd = html_path.to_string_lossy().replace('\\', "/");
+    let url_str = format!("file:///{}", fwd.trim_start_matches('/'));
+    let url = tauri::WindowUrl::External(
+        url_str.parse().map_err(|_| AppError::Other("bad url".into()))?,
+    );
+
+    // Close any stale window from a previous export
+    if let Some(w) = app.get_window("pdf-export") {
+        let _ = w.close();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    // Open an off-screen window at 8.5" × 11" at 96 dpi (816 × 1056 px)
+    let win = tauri::WindowBuilder::new(&app, "pdf-export", url)
+        .title("PDF Export")
+        .inner_size(816.0, 1056.0)
+        .position(-32000.0, -32000.0)
+        .visible(false)
+        .resizable(false)
+        .decorations(false)
+        .skip_taskbar(true)
+        .build()
+        .map_err(|e| AppError::Other(e.to_string()))?;
+
+    // Give WebView2 time to load and render. Our documents are self-contained
+    // HTML with no external resources so 1.5 s is more than enough.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    print_to_pdf_sync(&win, &pdf_path)
+        .map_err(AppError::Other)?;
+
+    if let Some(w) = app.get_window("pdf-export") {
+        let _ = w.close();
+    }
+
+    let bytes = std::fs::read(&pdf_path)
+        .map_err(|e| AppError::Other(format!("reading pdf: {e}")))?;
+    Ok(base64_encode(&bytes))
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub async fn export_pdf(_html: String, _app: tauri::AppHandle) -> std::result::Result<String, AppError> {
+    Err(AppError::Other("PDF export only supported on Windows".into()))
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(C[((n >> 18) & 63) as usize] as char);
+        out.push(C[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { C[((n >> 6) & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { C[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
 // ── Helpers (re-use the same fetch logic as reports.rs) ──────────────────────
 
 fn fetch_engagement(db: &AppDb) -> Result<EngagementMeta> {
@@ -503,7 +634,10 @@ struct CompositorCtx {
     stmt_kind_map: HashMap<String, i64>,
 }
 
-/// Scan a string for note_ref:/note_def: tags, registering keys in order.
+/// Scan a string for note_def: tags, assigning sequential numbers.
+/// note_ref: tags are intentionally ignored here — refs only resolve to numbers
+/// that were assigned by their corresponding note_def:. This prevents
+/// unreferenced note_ref: tags in a template from consuming note numbers.
 fn pass1_scan(
     text: &str,
     notes: &mut HashMap<String, NoteEntry>,
@@ -515,26 +649,16 @@ fn pass1_scan(
         if let Some(end) = remaining.find("}}") {
             let tag = remaining[..end].trim();
             remaining = &remaining[end + 2..];
-            // Check for note_ref:key or note_def:key[|title=...]
-            let (prefix, rest) = if let Some(r) = tag.strip_prefix("note_ref:") {
-                ("note_ref", r)
-            } else if let Some(r) = tag.strip_prefix("note_def:") {
-                ("note_def", r)
-            } else {
-                continue;
+            let rest = match tag.strip_prefix("note_def:") {
+                Some(r) => r,
+                None => continue,
             };
-            // Key is everything before the first | modifier
             let key = rest.split('|').next().unwrap_or(rest).trim().to_string();
             if key.is_empty() { continue; }
             if !notes.contains_key(&key) {
-                let title = if prefix == "note_def" {
-                    // Parse title= param from tag: note_def:cash|title=Cash and Cash Equivalents
-                    rest.split('|').skip(1).find_map(|p| {
-                        p.trim().strip_prefix("title=").map(|t| t.to_string())
-                    })
-                } else {
-                    None
-                };
+                let title = rest.split('|').skip(1).find_map(|p| {
+                    p.trim().strip_prefix("title=").map(|t| t.to_string())
+                });
                 notes.insert(key, NoteEntry { number: *next_number, title });
                 *next_number += 1;
             }
@@ -613,7 +737,7 @@ fn dispatch_tag(tag: &str, ctx: &CompositorCtx) -> String {
     let (body, modifier) = if let Some(pos) = tag.rfind('|') {
         // Only treat as modifier if the part after | is a known modifier
         let m = &tag[pos + 1..];
-        if m == "prior" || m == "inline" || m == "short" {
+        if matches!(m, "prior" | "py" | "py2" | "py3" | "py4" | "py5" | "inline" | "short") {
             (&tag[..pos], m)
         } else {
             (tag, "")
@@ -627,7 +751,7 @@ fn dispatch_tag(tag: &str, ctx: &CompositorCtx) -> String {
         let key = key.trim();
         return if let Some(entry) = ctx.notes.get(key) {
             if modifier == "inline" {
-                format!("<sup>({})</sup>", entry.number)
+                format!("<sup>{}</sup>", entry.number)
             } else {
                 format!("Note {}", entry.number)
             }
@@ -699,7 +823,10 @@ fn dispatch_tag(tag: &str, ctx: &CompositorCtx) -> String {
     }
 
     // ── Financial expression (fall-through to existing engine) ────────────────
-    let (cur_maps, pri_maps, cur_groups, pri_groups, cur_accts, pri_accts) = if modifier == "prior" {
+    // |prior / |py / |py2..py5 all resolve to the stored prior-year data.
+    // When multi-year history is added, py2-py5 will address older snapshots.
+    let use_prior = matches!(modifier, "prior" | "py" | "py2" | "py3" | "py4" | "py5");
+    let (cur_maps, pri_maps, cur_groups, pri_groups, cur_accts, pri_accts) = if use_prior {
         (&ctx.pri_maps, &ctx.pri_maps, &ctx.pri_groups, &ctx.pri_groups,
          &ctx.pri_accts, &ctx.pri_accts)
     } else {
@@ -1034,10 +1161,13 @@ pub async fn render_package(
     }
 
     // 5. PASS 1 — note discovery
+    // Sub-pass A: scan all template bodies for note_def: tags first, in package
+    // item order, so that note numbers are assigned by def location regardless of
+    // where note_ref: tags appear (including in earlier templates or statement labels).
     let mut notes: HashMap<String, NoteEntry> = HashMap::new();
     let mut next_number: i32 = 1;
 
-    for (_, kind, tmpl_id, stmt_id) in &items {
+    for (_, kind, tmpl_id, _) in &items {
         if kind == "template" {
             if let Some(tid) = tmpl_id {
                 let body: String = db.conn.query_row(
@@ -1045,7 +1175,12 @@ pub async fn render_package(
                 ).unwrap_or_default();
                 pass1_scan(&body, &mut notes, &mut next_number);
             }
-        } else if kind == "statement" {
+        }
+    }
+
+    // Sub-pass B: scan statement labels for any note_def: tags embedded there.
+    for (_, kind, _, stmt_id) in &items {
+        if kind == "statement" {
             if let Some(sid) = stmt_id {
                 if let Some(lines) = resolved_stmts.get(sid) {
                     let labels: String = lines.iter().map(|l| l.label.as_str()).collect::<Vec<_>>().join("\n");
@@ -1172,10 +1307,28 @@ pub async fn render_template(
         }
     }
 
-    // Single-pass note discovery on this template's body only
+    // Pass 1 — note discovery: scan ALL template bodies in the DB for note_def:
+    // tags first (so defs in later templates are registered before refs in this
+    // template are resolved), then scan statement labels.
     let mut notes: HashMap<String, NoteEntry> = HashMap::new();
     let mut next_number: i32 = 1;
-    pass1_scan(&body_html, &mut notes, &mut next_number);
+    {
+        let mut all_stmt = db.conn.prepare_cached(
+            "SELECT body_html FROM doc_templates ORDER BY id"
+        ).map_err(AppError::from)?;
+        let bodies: Vec<String> = all_stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(AppError::from)?
+            .flatten()
+            .collect();
+        for body in &bodies {
+            pass1_scan(body, &mut notes, &mut next_number);
+        }
+    }
+    for lines in resolved_stmts.values() {
+        let labels: String = lines.iter().map(|l| l.label.as_str()).collect::<Vec<_>>().join("\n");
+        pass1_scan(&labels, &mut notes, &mut next_number);
+    }
 
     let ctx = CompositorCtx {
         engagement,

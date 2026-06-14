@@ -3,10 +3,14 @@ import {
   listStatements,
   resolveStatement,
   seedDefaultStatements,
+  upsertStatement,
+  deleteStatement,
 } from "@/lib/tauri";
 import { formatAccounting } from "@/lib/format";
-import type { ResolvedLine, ResolvedStatement, Statement } from "@/types";
+import type { ResolvedLine, ResolvedStatement, Statement, StatementKind } from "@/types";
 import StatementEditor from "@/components/ui/StatementEditor";
+
+const KINDS: StatementKind[] = ["BALANCE_SHEET", "INCOME_STATEMENT", "CASH_FLOW", "EQUITY", "CUSTOM"];
 
 // HTML generation for the printable preview runs in a Web Worker so the UI
 // stays responsive while a large statement set is laid out.
@@ -22,6 +26,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [stmtModal, setStmtModal] = useState<{ id?: number; name: string; kind: StatementKind } | null>(null);
 
   // Load the statement list; seed the four standard templates on first visit.
   const loadStatements = async () => {
@@ -66,6 +71,32 @@ export default function ReportsPage() {
       cancelled = true;
     };
   }, [selectedId]);
+
+  const handleSaveStatement = async () => {
+    if (!stmtModal) return;
+    try {
+      const id = await upsertStatement({ id: stmtModal.id ?? null, name: stmtModal.name, kind: stmtModal.kind });
+      setStmtModal(null);
+      await loadStatements();
+      setSelectedId(id);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleDeleteStatement = async () => {
+    if (!selectedId) return;
+    const stmt = statements.find((s) => s.id === selectedId);
+    if (!confirm(`Delete "${stmt?.name}"? This cannot be undone.`)) return;
+    try {
+      await deleteStatement(selectedId);
+      setSelectedId(null);
+      setResolved(null);
+      await loadStatements();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   // Preview the full statement set as a standalone printable document.
   const handlePreviewAll = async () => {
@@ -178,19 +209,39 @@ export default function ReportsPage() {
           style={{ minWidth: 200 }}
         >
           {statements.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
+            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
-        <button className="btn btn-sm" onClick={loadStatements}>
-          Refresh
+        <button
+          className="btn btn-sm"
+          onClick={() => {
+            const stmt = statements.find((s) => s.id === selectedId);
+            if (stmt) setStmtModal({ id: stmt.id, name: stmt.name, kind: stmt.kind as StatementKind });
+          }}
+          disabled={selectedId === null}
+          title="Rename this statement"
+        >
+          Rename
         </button>
+        <button
+          className="btn btn-sm"
+          onClick={handleDeleteStatement}
+          disabled={selectedId === null}
+          title="Delete this statement"
+        >
+          Delete
+        </button>
+        <button
+          className="btn btn-sm"
+          onClick={() => setStmtModal({ name: "", kind: "CUSTOM" })}
+        >
+          + New
+        </button>
+        <div style={{ width: 1, background: "var(--color-border)", alignSelf: "stretch", margin: "0 4px" }} />
         <button
           className="btn btn-sm"
           onClick={() => setEditing(true)}
           disabled={selectedId === null}
-          title="Edit this statement's lines and formulas"
         >
           Edit lines
         </button>
@@ -251,7 +302,6 @@ export default function ReportsPage() {
           statementId={selectedId}
           onClose={() => setEditing(false)}
           onChanged={() => {
-            // Re-resolve live as lines are saved so the preview updates.
             setLoading(true);
             resolveStatement(selectedId)
               .then(setResolved)
@@ -259,6 +309,48 @@ export default function ReportsPage() {
               .finally(() => setLoading(false));
           }}
         />
+      )}
+
+      {stmtModal && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setStmtModal(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--color-bg)", border: "1px solid var(--color-border-strong)", padding: 20, width: 360, display: "flex", flexDirection: "column", gap: 12 }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {stmtModal.id ? "Rename statement" : "New statement"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 11, color: "var(--color-text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Name</label>
+              <input
+                autoFocus
+                className="input"
+                value={stmtModal.name}
+                onChange={(e) => setStmtModal({ ...stmtModal, name: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSaveStatement(); if (e.key === "Escape") setStmtModal(null); }}
+              />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 11, color: "var(--color-text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Kind</label>
+              <select
+                className="select"
+                value={stmtModal.kind}
+                onChange={(e) => setStmtModal({ ...stmtModal, kind: e.target.value as StatementKind })}
+              >
+                {KINDS.map((k) => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn" onClick={() => setStmtModal(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={!stmtModal.name.trim()} onClick={handleSaveStatement}>
+                {stmtModal.id ? "Save" : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -101,6 +101,7 @@ pub fn run() {
             commands::templates::get_note_registry,
             commands::templates::list_all_note_keys,
             commands::templates::seed_default_templates,
+            commands::templates::export_pdf,
             // Archive (.wwp)
             commands::archive::export_wwp,
             commands::archive::import_wwp,

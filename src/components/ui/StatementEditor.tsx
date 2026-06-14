@@ -67,9 +67,13 @@ export default function StatementEditor({ statementId, onClose, onChanged }: Pro
     }
   };
 
-  const addLine = async () => {
-    await persist({
-      id: undefined,
+  const addLine = async (afterId?: number) => {
+    const afterIndex = afterId != null ? lines.findIndex((l) => l.id === afterId) : -1;
+    const after = afterIndex >= 0 ? lines[afterIndex] : null;
+    await upsertStatementLine({
+      id: null,
+      statement_id: statementId,
+      parent_id: after?.parent_id ?? null,
       line_type: "MAP",
       label: "New line",
       expression: "",
@@ -77,7 +81,40 @@ export default function StatementEditor({ statementId, onClose, onChanged }: Pro
       underline: false,
       show_prior: true,
       invert_sign: false,
-    } as Partial<StatementLine>);
+    });
+    await load();
+    onChanged();
+    // If inserted after a specific line, reorder so the new line follows it
+    if (afterId != null) {
+      const fresh = await listStatements().then((all) => all.find((x) => x.id === statementId)?.lines ?? []);
+      const newLine = fresh[fresh.length - 1]; // newly added is always last from DB
+      if (newLine) {
+        const reordered = [...fresh];
+        reordered.splice(reordered.length - 1, 1);
+        reordered.splice(afterIndex + 1, 0, newLine);
+        await reorderStatementLines(reordered.map((l) => l.id));
+        setLines(reordered);
+        onChanged();
+      }
+    }
+  };
+
+  const indent = async (l: StatementLine) => {
+    // Find the preceding sibling — that becomes the new parent
+    const idx = lines.findIndex((x) => x.id === l.id);
+    if (idx <= 0) return;
+    const prev = lines[idx - 1];
+    await upsertStatementLine({ ...l, parent_id: prev.id });
+    await load();
+    onChanged();
+  };
+
+  const outdent = async (l: StatementLine) => {
+    if (l.parent_id === null) return;
+    const parent = lines.find((x) => x.id === l.parent_id);
+    await upsertStatementLine({ ...l, parent_id: parent?.parent_id ?? null });
+    await load();
+    onChanged();
   };
 
   const remove = async (id: number) => {
@@ -171,7 +208,7 @@ export default function StatementEditor({ statementId, onClose, onChanged }: Pro
         {/* Header */}
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>Edit statement lines</span>
-          <button className="btn btn-sm btn-primary" onClick={addLine}>+ Add line</button>
+          <button className="btn btn-sm btn-primary" onClick={() => addLine()}>+ Add line</button>
           <button className="btn btn-sm" onClick={onClose}>Done</button>
         </div>
 
@@ -190,6 +227,15 @@ export default function StatementEditor({ statementId, onClose, onChanged }: Pro
             const d = editing ? draft : l;
             const typ = (d.line_type ?? "MAP") as LineType;
             const showExpr = HAS_EXPR(typ);
+            // Count nesting depth for indent display
+            let depth = 0;
+            let pid = l.parent_id;
+            while (pid !== null) {
+              const p = lines.find((x) => x.id === pid);
+              if (!p) break;
+              depth++;
+              pid = p.parent_id;
+            }
 
             return (
               <div
@@ -222,9 +268,10 @@ export default function StatementEditor({ statementId, onClose, onChanged }: Pro
                   {/* Label preview */}
                   <span style={{
                     flex: 1,
+                    paddingLeft: depth * 16,
                     fontWeight: l.bold ? 700 : undefined,
                     textDecoration: l.underline ? "underline" : undefined,
-                    color: typ === "HEADER" ? undefined : typ === "SPACER" ? "var(--color-text-muted)" : undefined,
+                    color: typ === "HEADER" ? "var(--color-text-muted)" : typ === "SPACER" ? "var(--color-text-muted)" : undefined,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -257,8 +304,11 @@ export default function StatementEditor({ statementId, onClose, onChanged }: Pro
                       </>
                     ) : (
                       <>
+                        <button className="btn btn-xs" title="Outdent" onClick={() => outdent(l)} disabled={l.parent_id === null}>←</button>
+                        <button className="btn btn-xs" title="Indent under previous line" onClick={() => indent(l)} disabled={i === 0}>→</button>
                         <button className="btn btn-xs" onClick={() => beginEdit(l)}>Edit</button>
-                        <button className="btn btn-xs" onClick={() => remove(l.id)}>✕</button>
+                        <button className="btn btn-xs" title="Insert line below" onClick={() => addLine(l.id)}>+ below</button>
+                        <button className="btn btn-xs" style={{ color: "var(--color-danger)" }} onClick={() => remove(l.id)}>✕</button>
                       </>
                     )}
                   </div>

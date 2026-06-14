@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readBinaryFile } from "@tauri-apps/api/fs";
+import { useAtom } from "jotai";
+import { activeDocTemplateAtom } from "@/store/atoms";
+import { readBinaryFile, writeBinaryFile } from "@tauri-apps/api/fs";
+import { save } from "@tauri-apps/api/dialog";
 import {
   deleteDocAsset,
   deleteDocPackage,
   deleteDocTemplate,
   deletePackageItem,
+  exportPdf,
   getDocTemplate,
   listDocAssets,
   listDocPackages,
@@ -92,6 +96,7 @@ const TAG_GROUPS = [
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function DocumentsPage() {
+  const [activeDocTemplateId, setActiveDocTemplateId] = useAtom(activeDocTemplateAtom);
   const [packages, setPackages] = useState<DocPackage[]>([]);
   const [templates, setTemplates] = useState<DocTemplate[]>([]);
   const [assets, setAssets] = useState<DocAsset[]>([]);
@@ -103,6 +108,7 @@ export default function DocumentsPage() {
   const [editorView, setEditorView] = useState<"code" | "preview">("code");
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [newPkgName, setNewPkgName] = useState("");
@@ -122,12 +128,22 @@ export default function DocumentsPage() {
       setTemplates(tmpls);
       setAssets(asets);
       setStatements(stmts);
+      return tmpls;
     } catch (e) {
       setError(String(e));
+      return [];
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().then((tmpls) => {
+      if (activeDocTemplateId != null) {
+        const tmpl = tmpls.find((t) => t.id === activeDocTemplateId);
+        if (tmpl) setActiveTemplate(tmpl);
+        setActiveDocTemplateId(null);
+      }
+    });
+  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-refresh preview when the active template changes while in preview mode
   useEffect(() => {
@@ -272,6 +288,28 @@ export default function DocumentsPage() {
       setPreviewHtml(`<p style="color:red;padding:16px">${String(e)}</p>`);
     } finally {
       setPreviewLoading(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!previewHtml) return;
+    const destPath = await save({
+      title: "Save PDF",
+      defaultPath: `${activeTemplate?.name ?? "document"}.pdf`,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (!destPath) return;
+
+    setPdfExporting(true);
+    setError(null);
+    try {
+      const b64 = await exportPdf(previewHtml);
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await writeBinaryFile(destPath, bytes);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setPdfExporting(false);
     }
   };
 
@@ -523,6 +561,8 @@ export default function DocumentsPage() {
               previewHtml={previewHtml}
               previewLoading={previewLoading}
               onTagPicker={() => setTagPickerOpen(true)}
+              onExportPdf={handleExportPdf}
+              pdfExporting={pdfExporting}
               textareaRef={textareaRef}
             />
           ) : (
@@ -557,6 +597,8 @@ function TemplateEditor({
   previewHtml,
   previewLoading,
   onTagPicker,
+  onExportPdf,
+  pdfExporting,
   textareaRef,
 }: {
   template: DocTemplate;
@@ -567,6 +609,8 @@ function TemplateEditor({
   previewHtml: string | null;
   previewLoading: boolean;
   onTagPicker: () => void;
+  onExportPdf: () => void;
+  pdfExporting: boolean;
   textareaRef: React.RefObject<HTMLTextAreaElement>;
 }) {
   return (
@@ -604,6 +648,11 @@ function TemplateEditor({
         <div style={{ flex: 1 }} />
         {view === "code" && (
           <button className="btn btn-sm" onClick={onTagPicker}>Insert tag…</button>
+        )}
+        {view === "preview" && previewHtml && (
+          <button className="btn btn-sm" onClick={onExportPdf} disabled={pdfExporting} title="Save as PDF">
+            {pdfExporting ? "Generating…" : "⬇ Save PDF"}
+          </button>
         )}
         <button className="btn btn-sm btn-primary" onClick={onSave}>Save</button>
       </div>
@@ -650,7 +699,7 @@ function TemplateEditor({
               srcDoc={previewHtml}
               style={{ width: "100%", height: "100%", border: "none", background: "#fff" }}
               title="Template preview"
-              sandbox="allow-same-origin allow-scripts"
+              sandbox="allow-scripts"
             />
           )}
         </div>

@@ -36,3 +36,5 @@ export const activeLeadsheetAtom = atom<{
   type: "map" | "group";
   key: string | number;
 } | null>(null);
+
+export const activeDocTemplateAtom = atom<number | null>(null);

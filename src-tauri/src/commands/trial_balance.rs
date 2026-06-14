@@ -201,6 +201,35 @@ pub async fn update_account_mapping(
         params![map_number, account_number],
     )?;
 
+    // Auto-apply the map number's default grouping if one is set.
+    if let Some(ref code) = map_number {
+        let default_group: Option<i64> = db.conn
+            .query_row(
+                "SELECT default_grouping_id FROM map_numbers WHERE code=?1",
+                params![code],
+                |r| r.get(0),
+            )
+            .ok()
+            .flatten();
+
+        if let Some(gid) = default_group {
+            let account_id: Option<i64> = db.conn
+                .query_row(
+                    "SELECT id FROM tb_accounts WHERE account_number=?1",
+                    params![account_number],
+                    |r| r.get(0),
+                )
+                .ok();
+
+            if let Some(aid) = account_id {
+                db.conn.execute(
+                    "INSERT OR IGNORE INTO account_groupings (account_id, grouping_id) VALUES (?1, ?2)",
+                    params![aid, gid],
+                )?;
+            }
+        }
+    }
+
     Ok(())
 }
 

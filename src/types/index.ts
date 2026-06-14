@@ -279,10 +279,11 @@ export interface CabinetFolder {
 export interface CabinetItem {
   id: number;
   folder_id: number | null;
-  kind: "file" | "leadsheet";
+  kind: "file" | "leadsheet" | "document";
   display_name: string;
   file_path: string | null;
   leadsheet_scope: string | null;
+  doc_template_id: number | null;
   sort_order: number;
 }
 

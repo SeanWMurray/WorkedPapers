@@ -4655,6 +4655,8 @@ dependencies = [
  "tauri-build",
  "thiserror 1.0.69",
  "uuid",
+ "webview2-com",
+ "windows 0.39.0",
  "zip",
 ]
 

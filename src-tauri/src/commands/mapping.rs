@@ -82,6 +82,16 @@ pub async fn upsert_map_number(
         ],
     )?;
 
+    // If a default grouping was set, backfill all accounts already mapped to this
+    // map number that aren't yet in that grouping.
+    if let Some(gid) = payload.default_grouping_id {
+        db.conn.execute(
+            "INSERT OR IGNORE INTO account_groupings (account_id, grouping_id)
+             SELECT id, ?1 FROM tb_accounts WHERE map_number = ?2",
+            params![gid, payload.code],
+        )?;
+    }
+
     Ok(())
 }
 

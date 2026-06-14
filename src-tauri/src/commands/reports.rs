@@ -409,7 +409,7 @@ pub async fn resolve_statement(
             line_no: line.line_no,
             depth,
             line_type: line.line_type.clone(),
-            label: line.label.clone(),
+            label: expand_note_refs(&line.label, db),
             current,
             prior,
             text,
@@ -662,4 +662,70 @@ pub async fn seed_default_statements(
     })?;
 
     Ok(count)
+}
+
+/// Build a global note number map by scanning all template bodies for
+/// `{{note_def:key}}` tags in sort order. This is package-independent so
+/// statement labels can reference notes without a prior package render.
+fn build_global_note_map(db: &crate::db::AppDb) -> HashMap<String, i64> {
+    let mut map: HashMap<String, i64> = HashMap::new();
+    let mut counter: i64 = 1;
+    // Pull all template bodies ordered by id (stable insertion order).
+    let Ok(mut stmt) = db.conn.prepare_cached(
+        "SELECT body_html FROM doc_templates ORDER BY id"
+    ) else { return map; };
+    let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else { return map; };
+    for body in rows.flatten() {
+        let mut remaining = body.as_str();
+        while let Some(start) = remaining.find("{{") {
+            remaining = &remaining[start + 2..];
+            if let Some(end) = remaining.find("}}") {
+                let tag = remaining[..end].trim();
+                remaining = &remaining[end + 2..];
+                let key = if let Some(k) = tag.strip_prefix("note_def:") {
+                    k.split('|').next().unwrap_or("").trim()
+                } else {
+                    continue;
+                };
+                if !key.is_empty() && !map.contains_key(key) {
+                    map.insert(key.to_string(), counter);
+                    counter += 1;
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Replace `{{note_ref:key}}` tags in a label with "Note N".
+fn expand_note_refs(label: &str, db: &crate::db::AppDb) -> String {
+    if !label.contains("{{note_ref:") {
+        return label.to_string();
+    }
+    let registry = build_global_note_map(db);
+    let mut out = String::new();
+    let mut remaining = label;
+    while let Some(start) = remaining.find("{{") {
+        out.push_str(&remaining[..start]);
+        remaining = &remaining[start + 2..];
+        if let Some(end) = remaining.find("}}") {
+            let tag = remaining[..end].trim();
+            remaining = &remaining[end + 2..];
+            if let Some(key_raw) = tag.strip_prefix("note_ref:") {
+                // Strip any |modifier suffix (e.g. |inline) before looking up the key.
+                let key = key_raw.split('|').next().unwrap_or(key_raw).trim();
+                if let Some(&n) = registry.get(key) {
+                    out.push_str(&format!("Note {n}"));
+                } else {
+                    out.push_str(&format!("Note {key}?"));
+                }
+            } else {
+                out.push_str(&format!("{{{{{tag}}}}}"));
+            }
+        } else {
+            out.push_str("{{");
+        }
+    }
+    out.push_str(remaining);
+    out
 }

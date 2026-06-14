@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAtom, useSetAtom } from "jotai";
-import { engagementAtom, activeLeadsheetAtom, mapNumbersAtom, groupingsAtom, settingsAtom } from "@/store/atoms";
+import { engagementAtom, activeLeadsheetAtom, activeDocTemplateAtom, mapNumbersAtom, groupingsAtom, settingsAtom } from "@/store/atoms";
 import {
   getCabinet,
   createFolder,
@@ -17,12 +17,13 @@ import {
   open,
   listMapNumbers,
   listGroupings,
+  listDocTemplates,
   signOff,
   removeSignoff,
   getSignoffs,
 } from "@/lib/tauri";
 import { appWindow } from "@tauri-apps/api/window";
-import type { CabinetFolder, CabinetItem, CabinetTree, AttachedFile, MapNumber, Grouping, Signoff, SignoffRole } from "@/types";
+import type { CabinetFolder, CabinetItem, CabinetTree, AttachedFile, MapNumber, Grouping, Signoff, SignoffRole, DocTemplate } from "@/types";
 
 const ROLES: SignoffRole[] = ["PREPARER", "REVIEWER", "PARTNER"];
 const ROLE_SHORT: Record<SignoffRole, string> = { PREPARER: "Prep", REVIEWER: "Rev", PARTNER: "Ptr" };
@@ -240,6 +241,7 @@ export default function FilesPage() {
   const [mapNumbers, setMapNumbers] = useAtom(mapNumbersAtom);
   const [groupings, setGroupings] = useAtom(groupingsAtom);
   const setActiveLeadsheet = useSetAtom(activeLeadsheetAtom);
+  const setActiveDocTemplate = useSetAtom(activeDocTemplateAtom);
   const navigate = useNavigate();
 
   const [tree, setTree] = useState<CabinetTree | null>(null);
@@ -258,6 +260,12 @@ export default function FilesPage() {
   const [linkModal, setLinkModal] = useState<{ folderId: number | null } | null>(null);
   const [linkScope, setLinkScope] = useState("");
   const [linkName, setLinkName] = useState("");
+
+  // Document link modal
+  const [docLinkModal, setDocLinkModal] = useState<{ folderId: number | null } | null>(null);
+  const [docLinkTemplateId, setDocLinkTemplateId] = useState<number | "">("");
+  const [docLinkName, setDocLinkName] = useState("");
+  const [docTemplates, setDocTemplates] = useState<DocTemplate[]>([]);
 
   // Drag-and-drop is pointer-based (see useCabinetDrag); wired up after the
   // derived node list below so executeDrop can resolve sibling ordering.
@@ -357,6 +365,11 @@ export default function FilesPage() {
       navigate("/leadsheet");
       return;
     }
+    if (item.kind === "document" && item.doc_template_id != null) {
+      setActiveDocTemplate(item.doc_template_id);
+      navigate("/documents");
+      return;
+    }
     if (item.kind === "file" && item.file_path && engagement?.db_path) {
       const dir = engagement.db_path.replace(/[/\\][^/\\]+$/, "");
       const sep = engagement.db_path.includes("\\") ? "\\" : "/";
@@ -414,6 +427,22 @@ export default function FilesPage() {
     setLinkModal(null);
     setLinkScope("");
     setLinkName("");
+    await refresh();
+  };
+
+  const handleAddDocLink = async () => {
+    if (!docLinkTemplateId) return;
+    const tmpl = docTemplates.find((t) => t.id === docLinkTemplateId);
+    const name = docLinkName.trim() || tmpl?.name || "Document";
+    await upsertCabinetItem({
+      folder_id: docLinkModal?.folderId ?? null,
+      kind: "document",
+      display_name: name,
+      doc_template_id: Number(docLinkTemplateId),
+    });
+    setDocLinkModal(null);
+    setDocLinkTemplateId("");
+    setDocLinkName("");
     await refresh();
   };
 
@@ -549,6 +578,52 @@ export default function FilesPage() {
         />
       )}
 
+      {/* Document link modal */}
+      {docLinkModal && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100,
+          background: "rgba(0,0,0,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }} onClick={() => setDocLinkModal(null)}>
+          <div style={{
+            background: "var(--color-bg)",
+            border: "1px solid var(--color-border-strong)",
+            padding: 20, width: 340,
+            display: "flex", flexDirection: "column", gap: 10,
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Add Document Link</div>
+            <label style={{ fontSize: 11, color: "var(--color-text-muted)" }}>Template</label>
+            <select
+              className="select"
+              value={docLinkTemplateId}
+              onChange={(e) => {
+                const id = Number(e.target.value);
+                setDocLinkTemplateId(id || "");
+                const tmpl = docTemplates.find((t) => t.id === id);
+                if (tmpl && !docLinkName) setDocLinkName(tmpl.name);
+              }}
+            >
+              <option value="">— Select —</option>
+              {docTemplates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            <label style={{ fontSize: 11, color: "var(--color-text-muted)" }}>Display name (optional)</label>
+            <input
+              className="input"
+              placeholder="Leave blank to use template name"
+              value={docLinkName}
+              onChange={(e) => setDocLinkName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAddDocLink(); if (e.key === "Escape") setDocLinkModal(null); }}
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn" onClick={() => setDocLinkModal(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={!docLinkTemplateId} onClick={handleAddDocLink}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Context menu */}
       {ctxMenu && (
         <ContextMenu
@@ -576,6 +651,15 @@ export default function FilesPage() {
           onAddLeadsheetLink={() => {
             const folderId = ctxMenu.node.kind === "folder" ? ctxMenu.node.folder.id : null;
             setLinkModal({ folderId });
+            setCtxMenu(null);
+          }}
+          onAddDocLink={async () => {
+            const folderId = ctxMenu.node.kind === "folder" ? ctxMenu.node.folder.id : null;
+            const tmpls = await listDocTemplates();
+            setDocTemplates(tmpls);
+            setDocLinkTemplateId("");
+            setDocLinkName("");
+            setDocLinkModal({ folderId });
             setCtxMenu(null);
           }}
           onRemoveFromCabinet={() => {
@@ -614,6 +698,15 @@ export default function FilesPage() {
         </button>
         <button className="btn btn-sm" onClick={() => setLinkModal({ folderId: null })}>
           + Leadsheet Link
+        </button>
+        <button className="btn btn-sm" onClick={async () => {
+          const tmpls = await listDocTemplates();
+          setDocTemplates(tmpls);
+          setDocLinkTemplateId("");
+          setDocLinkName("");
+          setDocLinkModal({ folderId: null });
+        }}>
+          + Doc Link
         </button>
         <button className="btn btn-sm btn-primary" onClick={handleAttachFiles}>
           + Attach Files
@@ -799,11 +892,11 @@ export default function FilesPage() {
                 fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700,
                 padding: "0 3px", border: "1px solid var(--color-border)",
                 letterSpacing: "0.04em", marginRight: 7, flexShrink: 0,
-                color: item.kind === "leadsheet" ? "var(--color-text-muted)" : undefined,
+                color: (item.kind === "leadsheet" || item.kind === "document") ? "var(--color-primary)" : undefined,
                 minWidth: 26, textAlign: "center",
               }}>
-                {item.kind === "leadsheet"
-                  ? "LS"
+                {item.kind === "leadsheet" ? "LS"
+                  : item.kind === "document" ? "DOC"
                   : FILE_ICON[diskMeta?.ext ?? ""] ?? ((diskMeta?.ext ?? "").toUpperCase().slice(0, 4) || "—")}
               </span>
 
@@ -965,7 +1058,7 @@ function NewFolderRow({
 
 function ContextMenu({
   x, y, node, isLocked,
-  onOpen, onRename, onNewFolder, onAddLeadsheetLink,
+  onOpen, onRename, onNewFolder, onAddLeadsheetLink, onAddDocLink,
   onRemoveFromCabinet, onDeleteFromDisk, onDeleteFolder,
   onSignOff, fileSignoffs, currentUser,
 }: {
@@ -974,6 +1067,7 @@ function ContextMenu({
   onRename: () => void;
   onNewFolder: () => void;
   onAddLeadsheetLink: () => void;
+  onAddDocLink: () => void;
   onRemoveFromCabinet: () => void;
   onDeleteFromDisk: () => void;
   onDeleteFolder: () => void;
@@ -983,13 +1077,14 @@ function ContextMenu({
 }) {
   const isFolder = node.kind === "folder";
   const isFile = node.kind === "item" && node.item.kind === "file";
-  const isLink = node.kind === "item" && node.item.kind === "leadsheet";
+  const isLink = node.kind === "item" && (node.item.kind === "leadsheet" || node.item.kind === "document");
 
   const menuItems: { label: string; action: () => void; danger?: boolean; sep?: boolean }[] = [];
 
   if (!isFolder) menuItems.push({ label: "Open", action: onOpen });
   if (isFolder) menuItems.push({ label: "New Subfolder", action: onNewFolder });
   if (isFolder) menuItems.push({ label: "Add Leadsheet Link Here", action: onAddLeadsheetLink });
+  if (isFolder) menuItems.push({ label: "Add Document Link Here", action: onAddDocLink });
   menuItems.push({ label: "Rename", action: onRename, sep: !isFolder });
 
   if (!isLocked && (isFile || isLink)) {
@@ -1011,7 +1106,7 @@ function ContextMenu({
   if (!isLocked) {
     if (isFile) menuItems.push({ label: "Remove from Cabinet", action: onRemoveFromCabinet, sep: true });
     if (isFile) menuItems.push({ label: "Delete from Disk", action: onDeleteFromDisk, danger: true });
-    if (isLink) menuItems.push({ label: "Delete Link", action: onRemoveFromCabinet, sep: true, danger: true });
+    if (isLink) menuItems.push({ label: "Remove Link", action: onRemoveFromCabinet, sep: true, danger: true });
     if (isFolder) menuItems.push({ label: "Delete Folder", action: onDeleteFolder, sep: true, danger: true });
   }
 

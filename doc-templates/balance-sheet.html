@@ -3,7 +3,6 @@
 <head>
   <meta charset="utf-8" />
   <style>
-    /* ── Reset & base ─────────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -13,7 +12,6 @@
       background: #fff;
     }
 
-    /* ── Page shell ───────────────────────────────────────────────────────── */
     .page {
       max-width: 780px;
       margin: 0 auto;
@@ -37,7 +35,7 @@
       line-height: 1.55;
     }
 
-    /* ── Document title block ─────────────────────────────────────────────── */
+    /* ── Title block ──────────────────────────────────────────────────────── */
     .title-block {
       text-align: center;
       margin-bottom: 28px;
@@ -65,10 +63,6 @@
     }
 
     /* ── Financial statement table ────────────────────────────────────────── */
-    /*
-      The {{statement:balance_sheet}} tag injects a <table class="fs-table"> block.
-      These styles control how that table looks.
-    */
     .fs-table {
       width: 100%;
       border-collapse: collapse;
@@ -79,48 +73,60 @@
       padding: 2px 0;
       vertical-align: bottom;
     }
-    .fs-table .fs-label {
-      padding-left: 0;
-      width: 60%;
-    }
-    .fs-table .fs-label.fs-indent { padding-left: 18px; }
-    .fs-table .fs-label.fs-indent-2 { padding-left: 36px; }
-    .fs-table .fs-amount {
+    .fs-label { width: 56%; }
+    .fs-amount {
       text-align: right;
-      width: 18%;
+      width: 20%;
       font-family: "Courier New", monospace;
       font-size: 9.5pt;
       padding-right: 4px;
     }
-    .fs-table tr.fs-header td {
+    .fs-i1  { padding-left: 16px; }
+    .fs-i2  { padding-left: 32px; }
+
+    .fs-section-header td {
       font-weight: bold;
       text-transform: uppercase;
       font-size: 9pt;
       letter-spacing: 0.03em;
-      padding-top: 14px;
-      padding-bottom: 2px;
+      padding-top: 16px;
+      padding-bottom: 3px;
       border-bottom: 1px solid #888;
     }
-    .fs-table tr.fs-subtotal td {
+    .fs-subtotal td {
       font-weight: bold;
       border-top: 1px solid #444;
-    }
-    .fs-table tr.fs-total td {
-      font-weight: bold;
-      border-top: 2px solid #111;
       padding-top: 2px;
     }
-    .fs-table tr.fs-spacer { height: 6px; }
-    .fs-table .fs-negative { color: #c00; }
+    .fs-total td {
+      font-weight: bold;
+      border-top: 2.5px solid #111;
+      padding-top: 2px;
+    }
+    .fs-double td {
+      font-weight: bold;
+      border-top: 2px solid #111;
+      border-bottom: 3px double #111;
+      padding-top: 2px;
+      padding-bottom: 3px;
+    }
+    .fs-spacer { height: 6px; }
+    .fs-col-header td {
+      font-size: 8.5pt;
+      font-weight: bold;
+      text-align: right;
+      padding-bottom: 3px;
+      border-bottom: 1px solid #aaa;
+      color: #444;
+    }
+    .fs-col-header td:first-child { text-align: left; }
 
-    /* ── Section divider ──────────────────────────────────────────────────── */
+    /* ── Section rule / footer ────────────────────────────────────────────── */
     .section-rule {
       border: none;
       border-top: 1px solid #ccc;
       margin: 24px 0 16px;
     }
-
-    /* ── Footer ───────────────────────────────────────────────────────────── */
     .footer {
       margin-top: 36px;
       padding-top: 10px;
@@ -131,7 +137,6 @@
       justify-content: space-between;
     }
 
-    /* ── Print ────────────────────────────────────────────────────────────── */
     @media print {
       body { font-size: 10pt; }
       .page { padding: 36px 48px; }
@@ -163,8 +168,233 @@
     <div class="title-block__basis">(Expressed in {{currency}})</div>
   </div>
 
-  <!-- Statement embed — the engine resolves this into a full <table> -->
-  {{statement:balance_sheet}}
+  <!-- Balance Sheet -->
+  <table class="fs-table">
+
+    <!-- Column headers -->
+    <tr class="fs-col-header">
+      <td></td>
+      <td>{{fiscal_year}}</td>
+      <td>{{fiscal_year|py}}</td>
+    </tr>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- ASSETS                                                            -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <tr class="fs-section-header"><td colspan="3">Assets</td></tr>
+
+    <!-- Current Assets -->
+    <tr class="fs-section-header" style="font-size:8.5pt; font-weight:normal; text-transform:none; border-bottom:none;">
+      <td colspan="3" style="padding-top:8px; padding-bottom:2px; font-style:italic; color:#555;">Current assets</td>
+    </tr>
+
+    <tr>
+      <td class="fs-label fs-i1">Cash and cash equivalents {{note_ref:cash|inline}}</td>
+      <td class="fs-amount">{{SUM(1000..1099)}}</td>
+      <td class="fs-amount">{{SUM(1000..1099)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Accounts receivable {{note_ref:receivables|inline}}</td>
+      <td class="fs-amount">{{SUM(1100..1199)}}</td>
+      <td class="fs-amount">{{SUM(1100..1199)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Income taxes receivable</td>
+      <td class="fs-amount">{{SUM(1200..1249)}}</td>
+      <td class="fs-amount">{{SUM(1200..1249)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Inventory {{note_ref:inventory|inline}}</td>
+      <td class="fs-amount">{{SUM(1250..1349)}}</td>
+      <td class="fs-amount">{{SUM(1250..1349)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Prepaid expenses and deposits</td>
+      <td class="fs-amount">{{SUM(1350..1499)}}</td>
+      <td class="fs-amount">{{SUM(1350..1499)|py}}</td>
+    </tr>
+    <tr class="fs-subtotal">
+      <td class="fs-label fs-i1">Total current assets</td>
+      <td class="fs-amount">{{SUM(1000..1499)}}</td>
+      <td class="fs-amount">{{SUM(1000..1499)|py}}</td>
+    </tr>
+
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+
+    <!-- Non-Current Assets -->
+    <tr>
+      <td class="fs-label" style="padding-top:4px; padding-bottom:2px; font-style:italic; color:#555; font-size:8.5pt;" colspan="3">Non-current assets</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Property, plant and equipment, net {{note_ref:ppe|inline}}</td>
+      <td class="fs-amount">{{SUM(1500..1699)}}</td>
+      <td class="fs-amount">{{SUM(1500..1699)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Right-of-use assets {{note_ref:leases|inline}}</td>
+      <td class="fs-amount">{{SUM(1700..1749)}}</td>
+      <td class="fs-amount">{{SUM(1700..1749)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Intangible assets {{note_ref:intangibles|inline}}</td>
+      <td class="fs-amount">{{SUM(1750..1849)}}</td>
+      <td class="fs-amount">{{SUM(1750..1849)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Goodwill</td>
+      <td class="fs-amount">{{SUM(1850..1899)}}</td>
+      <td class="fs-amount">{{SUM(1850..1899)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Investments and other assets</td>
+      <td class="fs-amount">{{SUM(1900..1999)}}</td>
+      <td class="fs-amount">{{SUM(1900..1999)|py}}</td>
+    </tr>
+    <tr class="fs-subtotal">
+      <td class="fs-label fs-i1">Total non-current assets</td>
+      <td class="fs-amount">{{SUM(1500..1999)}}</td>
+      <td class="fs-amount">{{SUM(1500..1999)|py}}</td>
+    </tr>
+
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+
+    <tr class="fs-total">
+      <td class="fs-label">Total assets</td>
+      <td class="fs-amount">{{SUM(1000..1999)}}</td>
+      <td class="fs-amount">{{SUM(1000..1999)|py}}</td>
+    </tr>
+
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- LIABILITIES AND EQUITY                                            -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <tr class="fs-section-header"><td colspan="3">Liabilities</td></tr>
+
+    <!-- Current Liabilities -->
+    <tr>
+      <td class="fs-label" style="padding-top:8px; padding-bottom:2px; font-style:italic; color:#555; font-size:8.5pt;" colspan="3">Current liabilities</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Bank indebtedness {{note_ref:bank_debt|inline}}</td>
+      <td class="fs-amount">{{SUM(2000..2049)}}</td>
+      <td class="fs-amount">{{SUM(2000..2049)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Accounts payable and accrued liabilities {{note_ref:payables|inline}}</td>
+      <td class="fs-amount">{{SUM(2050..2199)}}</td>
+      <td class="fs-amount">{{SUM(2050..2199)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Income taxes payable</td>
+      <td class="fs-amount">{{SUM(2200..2249)}}</td>
+      <td class="fs-amount">{{SUM(2200..2249)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Deferred revenue</td>
+      <td class="fs-amount">{{SUM(2250..2299)}}</td>
+      <td class="fs-amount">{{SUM(2250..2299)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Current portion of long-term debt {{note_ref:ltd|inline}}</td>
+      <td class="fs-amount">{{SUM(2300..2399)}}</td>
+      <td class="fs-amount">{{SUM(2300..2399)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Current portion of lease liabilities {{note_ref:leases|inline}}</td>
+      <td class="fs-amount">{{SUM(2400..2449)}}</td>
+      <td class="fs-amount">{{SUM(2400..2449)|py}}</td>
+    </tr>
+    <tr class="fs-subtotal">
+      <td class="fs-label fs-i1">Total current liabilities</td>
+      <td class="fs-amount">{{SUM(2000..2499)}}</td>
+      <td class="fs-amount">{{SUM(2000..2499)|py}}</td>
+    </tr>
+
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+
+    <!-- Non-Current Liabilities -->
+    <tr>
+      <td class="fs-label" style="padding-top:4px; padding-bottom:2px; font-style:italic; color:#555; font-size:8.5pt;" colspan="3">Non-current liabilities</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Long-term debt {{note_ref:ltd|inline}}</td>
+      <td class="fs-amount">{{SUM(2500..2699)}}</td>
+      <td class="fs-amount">{{SUM(2500..2699)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Lease liabilities {{note_ref:leases|inline}}</td>
+      <td class="fs-amount">{{SUM(2700..2749)}}</td>
+      <td class="fs-amount">{{SUM(2700..2749)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Deferred income taxes</td>
+      <td class="fs-amount">{{SUM(2750..2849)}}</td>
+      <td class="fs-amount">{{SUM(2750..2849)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Other long-term liabilities</td>
+      <td class="fs-amount">{{SUM(2850..2999)}}</td>
+      <td class="fs-amount">{{SUM(2850..2999)|py}}</td>
+    </tr>
+    <tr class="fs-subtotal">
+      <td class="fs-label fs-i1">Total non-current liabilities</td>
+      <td class="fs-amount">{{SUM(2500..2999)}}</td>
+      <td class="fs-amount">{{SUM(2500..2999)|py}}</td>
+    </tr>
+
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+
+    <tr class="fs-subtotal">
+      <td class="fs-label">Total liabilities</td>
+      <td class="fs-amount">{{SUM(2000..2999)}}</td>
+      <td class="fs-amount">{{SUM(2000..2999)|py}}</td>
+    </tr>
+
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- EQUITY                                                            -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <tr class="fs-section-header"><td colspan="3">Shareholders' Equity</td></tr>
+
+    <tr>
+      <td class="fs-label fs-i1" style="padding-top:8px;">Share capital {{note_ref:equity|inline}}</td>
+      <td class="fs-amount">{{SUM(3000..3099)}}</td>
+      <td class="fs-amount">{{SUM(3000..3099)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Contributed surplus</td>
+      <td class="fs-amount">{{SUM(3100..3199)}}</td>
+      <td class="fs-amount">{{SUM(3100..3199)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Retained earnings</td>
+      <td class="fs-amount">{{SUM(3200..3499)}}</td>
+      <td class="fs-amount">{{SUM(3200..3499)|py}}</td>
+    </tr>
+    <tr>
+      <td class="fs-label fs-i1">Accumulated other comprehensive income (loss)</td>
+      <td class="fs-amount">{{SUM(3500..3699)}}</td>
+      <td class="fs-amount">{{SUM(3500..3699)|py}}</td>
+    </tr>
+    <tr class="fs-subtotal">
+      <td class="fs-label fs-i1">Total shareholders' equity</td>
+      <td class="fs-amount">{{SUM(3000..3999)}}</td>
+      <td class="fs-amount">{{SUM(3000..3999)|py}}</td>
+    </tr>
+
+    <tr class="fs-spacer"><td colspan="3"></td></tr>
+
+    <tr class="fs-double">
+      <td class="fs-label">Total liabilities and shareholders' equity</td>
+      <td class="fs-amount">{{SUM(2000..3999)}}</td>
+      <td class="fs-amount">{{SUM(2000..3999)|py}}</td>
+    </tr>
+
+  </table>
 
   <hr class="section-rule">
 
@@ -190,7 +420,7 @@
   <!-- Footer -->
   <div class="footer">
     <span>{{entity_name}} — Balance Sheet as at {{year_end}}</span>
-    <span>See accompanying notes to financial statements {{note_ref:basis}}</span>
+    <span>See accompanying notes to financial statements {{note_ref:basis|inline}}</span>
   </div>
 
 </div>
