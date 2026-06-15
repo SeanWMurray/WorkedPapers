@@ -52,6 +52,10 @@
 
 ### 3.5. Audit Mechanics & Workflow
 * **Leadsheets & Documents:** ✅ **Implemented** — Leadsheet page shows accounts and AJE lines scoped by map number or grouping. Persistent notes per leadsheet saved to DB. Select from sidebar to open.
+* **Per-Account Annotations:** ✅ **Implemented** — Each account row in a leadsheet can have:
+    * **Note:** icon-based UI (grey "i" circle when empty, blue when has note). Hover shows the note text in a tooltip. Double-click opens a modal editor with a textarea. Saves independently of file references.
+    * **File Cabinet Reference:** icon-based "📎" (click to open, right-click for context menu with Open/Change/Remove). Opens files via system default app, documents navigate to document editor, leadsheet links navigate to leadsheet. A mini file-cabinet picker modal (with collapsible folders and all items) appears on "Change" to select a new reference.
+    * Backend: `leadsheet_annotations` table (migration 010) with `UNIQUE(account_number, scope)` constraint for upsert semantics. Both fields nullable independently so note and file ref are decoupled.
 * **Tickmarks & Cross-Referencing:** ✅ **Implemented (backend)** — Tickmark data model and Rust commands complete. UI drop/remove *(TODO — Phase 3 full UI)*. Deep-linking from report to leadsheet *(TODO — Phase 3)*.
 * **Role-Based Sign-offs & Lockdown:** ✅ **Implemented** — Three-level sign-offs (Preparer, Reviewer, Partner) per leadsheet scope. Engagement lock sets a SHA-256 seal hash stored in DB. All Rust write commands check `is_locked` and return `EngagementLocked` error if set.
 * **Immutable Audit Trail:** ✅ **Implemented** — `audit_trail` table is append-only (no deletes, no updates). Every AJE post/void, sign-off, lock, TB import, and roll-forward writes a row with action, entity, performer, timestamp, and JSON detail blob. Viewable in Audit Trail page.
@@ -101,6 +105,7 @@
     * ✅ Map numbers (hierarchical) and custom groupings
     * ✅ Leadsheets scoped by map number or grouping, with persistent notes
     * ✅ Three-level sign-offs, engagement lock with cryptographic seal
+    * ✅ Per-account leadsheet annotations (notes + file cabinet references with mini picker)
     * ✅ Immutable audit trail
     * ✅ Year-end roll-forward (Rayon thread, new file, P&L zero, BS carry-forward)
     * ✅ `.wwp` export/import (AES-256-GCM encrypted ZIP)

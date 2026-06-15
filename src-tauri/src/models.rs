@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 // ─── Engagement ──────────────────────────────────────────────────────────────
@@ -14,6 +14,44 @@ pub struct EngagementMeta {
     pub created_at: DateTime<Utc>,
     pub db_path: String,
 }
+
+/// Parse a timestamp stored by SQLite. Handles both `datetime('now')` output
+/// (`YYYY-MM-DD HH:MM:SS`, UTC, no tz) and RFC3339 strings written by Rust.
+/// Falls back to "now" only if the value is genuinely unparseable.
+pub fn parse_db_datetime(s: &str) -> DateTime<Utc> {
+    if let Ok(dt) = s.parse::<DateTime<Utc>>() {
+        return dt;
+    }
+    if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return naive.and_utc();
+    }
+    Utc::now()
+}
+
+/// Shared row mapper for `EngagementMeta`. Every call site selects the same
+/// seven columns in this order:
+///   id, entity_name, year_end, fiscal_year, currency, is_locked, created_at
+/// Centralizing this prevents the `created_at` field from being fabricated
+/// (the bug fixed in B2) and keeps the mapping consistent.
+pub fn map_engagement_row(
+    row: &rusqlite::Row<'_>,
+    db_path: String,
+) -> rusqlite::Result<EngagementMeta> {
+    Ok(EngagementMeta {
+        id: row.get(0)?,
+        entity_name: row.get(1)?,
+        year_end: row.get(2)?,
+        fiscal_year: row.get(3)?,
+        currency: row.get(4)?,
+        is_locked: row.get::<_, i32>(5)? != 0,
+        created_at: parse_db_datetime(&row.get::<_, String>(6)?),
+        db_path,
+    })
+}
+
+/// The canonical column list for `map_engagement_row`, to keep SELECTs in sync.
+pub const ENGAGEMENT_COLUMNS: &str =
+    "id, entity_name, year_end, fiscal_year, currency, is_locked, created_at";
 
 // ─── Trial Balance ────────────────────────────────────────────────────────────
 

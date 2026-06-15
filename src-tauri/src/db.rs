@@ -98,6 +98,11 @@ impl AppDb {
             self.conn.execute("INSERT INTO schema_version (version) VALUES (10)", [])?;
         }
 
+        if version < 11 {
+            self.conn.execute_batch(include_str!("../migrations/011_annotation_scope_index.sql"))?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (11)", [])?;
+        }
+
         Ok(())
     }
 
@@ -111,6 +116,19 @@ impl AppDb {
         let result = f(&tx)?;
         tx.commit()?;
         Ok(result)
+    }
+
+    /// Guard for write commands: returns `EngagementLocked` if the engagement
+    /// has been sealed. Call this as the first line of every mutating command —
+    /// it is the single source of truth for lock enforcement.
+    pub fn ensure_unlocked(&self) -> Result<()> {
+        let locked: i64 = self
+            .conn
+            .query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
+        if locked != 0 {
+            return Err(AppError::EngagementLocked);
+        }
+        Ok(())
     }
 
     /// Append a row to the immutable audit trail.

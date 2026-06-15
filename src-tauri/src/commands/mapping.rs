@@ -60,8 +60,7 @@ pub async fn upsert_map_number(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     db.conn.execute(
         "INSERT INTO map_numbers (code, label, parent_code, sort_order, fs_line, default_grouping_id, flip_map_code)
@@ -129,8 +128,7 @@ pub async fn upsert_grouping(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     if let Some(id) = payload.id {
         db.conn.execute(
@@ -154,8 +152,7 @@ pub async fn delete_grouping(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM groupings WHERE id=?1", params![id])?;
     Ok(())
 }
@@ -167,8 +164,7 @@ pub async fn delete_map_number(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM map_numbers WHERE code=?1", params![code])?;
     Ok(())
 }
@@ -182,8 +178,7 @@ pub async fn assign_grouping(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     let account_id: i64 = db.conn.query_row(
         "SELECT id FROM tb_accounts WHERE account_number = ?1",

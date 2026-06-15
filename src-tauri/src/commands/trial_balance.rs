@@ -21,8 +21,7 @@ pub async fn import_tb_csv(
 ) -> std::result::Result<usize, AppError> {
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     let count = rows.len();
 
@@ -125,8 +124,7 @@ pub async fn update_account_meta(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     db.conn.execute(
         "UPDATE tb_accounts SET account_number = ?1, account_name = ?2 WHERE account_number = ?3",
@@ -145,8 +143,7 @@ pub async fn update_account_balance(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     db.conn.execute(
         "UPDATE tb_accounts SET current_balance = ?1, prior_balance = ?2 WHERE account_number = ?3",
@@ -172,8 +169,7 @@ pub async fn create_account(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     db.conn.execute(
         "INSERT INTO tb_accounts (account_number, account_name, current_balance, prior_balance, map_number)
@@ -203,8 +199,7 @@ pub async fn update_account_mapping(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     db.conn.execute(
         "UPDATE tb_accounts SET map_number = ?1 WHERE account_number = ?2",

@@ -1,8 +1,7 @@
 use crate::db::AppDb;
-use crate::error::{AppError, Result};
-use crate::models::EngagementMeta;
+use crate::error::AppError;
+use crate::models::{map_engagement_row, EngagementMeta, ENGAGEMENT_COLUMNS};
 use crate::AppState;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
@@ -25,20 +24,9 @@ pub async fn open_engagement(
     let db = AppDb::open(&path)?;
 
     let meta: EngagementMeta = db.conn.query_row(
-        "SELECT id, entity_name, year_end, fiscal_year, currency, is_locked, created_at FROM engagement LIMIT 1",
+        &format!("SELECT {ENGAGEMENT_COLUMNS} FROM engagement LIMIT 1"),
         [],
-        |row| {
-            Ok(EngagementMeta {
-                id: row.get(0)?,
-                entity_name: row.get(1)?,
-                year_end: row.get(2)?,
-                fiscal_year: row.get(3)?,
-                currency: row.get(4)?,
-                is_locked: row.get::<_, i32>(5)? != 0,
-                created_at: Utc::now(), // parse from string in production
-                db_path: path.clone(),
-            })
-        },
+        |row| map_engagement_row(row, path.clone()),
     )?;
 
     *state.db.lock().unwrap() = Some(db);
@@ -66,16 +54,12 @@ pub async fn create_engagement(
         ],
     )?;
 
-    let meta = EngagementMeta {
-        id,
-        entity_name: payload.entity_name,
-        year_end: payload.year_end,
-        fiscal_year: payload.fiscal_year,
-        currency: payload.currency,
-        is_locked: false,
-        created_at: Utc::now(),
-        db_path: payload.db_path,
-    };
+    // Re-read so created_at reflects the DB default rather than a fabricated value.
+    let meta: EngagementMeta = db.conn.query_row(
+        &format!("SELECT {ENGAGEMENT_COLUMNS} FROM engagement LIMIT 1"),
+        [],
+        |row| map_engagement_row(row, payload.db_path.clone()),
+    )?;
 
     *state.db.lock().unwrap() = Some(db);
     Ok(meta)
@@ -99,20 +83,9 @@ pub async fn get_engagement_meta(
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
 
     let meta = db.conn.query_row(
-        "SELECT id, entity_name, year_end, fiscal_year, currency, is_locked, created_at FROM engagement LIMIT 1",
+        &format!("SELECT {ENGAGEMENT_COLUMNS} FROM engagement LIMIT 1"),
         [],
-        |row| {
-            Ok(EngagementMeta {
-                id: row.get(0)?,
-                entity_name: row.get(1)?,
-                year_end: row.get(2)?,
-                fiscal_year: row.get(3)?,
-                currency: row.get(4)?,
-                is_locked: row.get::<_, i32>(5)? != 0,
-                created_at: Utc::now(),
-                db_path: db.path.clone(),
-            })
-        },
+        |row| map_engagement_row(row, db.path.clone()),
     )?;
 
     Ok(meta)

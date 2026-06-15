@@ -1,8 +1,8 @@
 use crate::db::AppDb;
 use crate::error::{AppError, Result};
 use crate::models::{
-    DocAsset, DocPackage, DocPackageItem, DocTemplate, EngagementMeta, NoteInfo,
-    RenderPackageResult, ResolvedLine,
+    map_engagement_row, DocAsset, DocPackage, DocPackageItem, DocTemplate, EngagementMeta,
+    NoteInfo, RenderPackageResult, ResolvedLine, ENGAGEMENT_COLUMNS,
 };
 use crate::AppState;
 use chrono::Utc;
@@ -145,21 +145,9 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 fn fetch_engagement(db: &AppDb) -> Result<EngagementMeta> {
     Ok(db.conn.query_row(
-        "SELECT id, entity_name, year_end, fiscal_year, currency, is_locked, created_at
-         FROM engagement LIMIT 1",
+        &format!("SELECT {ENGAGEMENT_COLUMNS} FROM engagement LIMIT 1"),
         [],
-        |r| {
-            Ok(EngagementMeta {
-                id: r.get(0)?,
-                entity_name: r.get(1)?,
-                year_end: r.get(2)?,
-                fiscal_year: r.get(3)?,
-                currency: r.get(4)?,
-                is_locked: r.get::<_, i32>(5)? != 0,
-                created_at: Utc::now(),
-                db_path: db.path.clone(),
-            })
-        },
+        |r| map_engagement_row(r, db.path.clone()),
     )?)
 }
 
@@ -285,8 +273,7 @@ pub async fn upsert_doc_asset(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute(
         "INSERT INTO doc_assets (name, mime_type, data_base64, width_px, height_px, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
@@ -334,8 +321,7 @@ pub async fn delete_doc_asset(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM doc_assets WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -358,8 +344,7 @@ pub async fn upsert_doc_template(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     if let Some(id) = payload.id {
         db.conn.execute(
             "UPDATE doc_templates SET name=?1, kind=?2, body_html=?3, description=?4,
@@ -425,8 +410,7 @@ pub async fn delete_doc_template(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM doc_templates WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -447,8 +431,7 @@ pub async fn upsert_doc_package(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     if let Some(id) = payload.id {
         db.conn.execute(
             "UPDATE doc_packages SET name=?1, description=?2, updated_at=datetime('now') WHERE id=?3",
@@ -486,8 +469,7 @@ pub async fn delete_doc_package(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM doc_packages WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -512,8 +494,7 @@ pub async fn upsert_package_item(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     let overrides = payload.var_overrides.unwrap_or_else(|| "{}".to_string());
     if let Some(id) = payload.id {
         db.conn.execute(
@@ -563,8 +544,7 @@ pub async fn reorder_package_items(
 ) -> std::result::Result<(), AppError> {
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.transaction(|conn| {
         for (i, id) in ordered_ids.iter().enumerate() {
             conn.execute(
@@ -584,8 +564,7 @@ pub async fn delete_package_item(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM doc_package_items WHERE id=?1", params![id])?;
     Ok(())
 }

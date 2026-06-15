@@ -122,8 +122,7 @@ pub async fn attach_file(
     {
         let guard = state.db.lock().unwrap();
         let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-        let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-        if is_locked != 0 { return Err(AppError::EngagementLocked); }
+        db.ensure_unlocked()?;
     }
     let dir = engagement_dir(&state)?;
     let dir_path = Path::new(&dir);
@@ -180,8 +179,7 @@ pub async fn remove_attachment(
     {
         let guard = state.db.lock().unwrap();
         let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-        let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-        if is_locked != 0 { return Err(AppError::EngagementLocked); }
+        db.ensure_unlocked()?;
     }
     let dir = engagement_dir(&state)?;
     let db_dir = Path::new(&dir);
@@ -260,8 +258,7 @@ pub async fn create_folder(
 ) -> std::result::Result<CabinetFolder, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     // sort_order = max sibling + 1
     let next_sort: i64 = db.conn.query_row(
@@ -286,8 +283,7 @@ pub async fn rename_folder(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute(
         "UPDATE file_cabinet_folders SET name = ?1 WHERE id = ?2",
         params![name, id],
@@ -302,8 +298,7 @@ pub async fn delete_folder(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     // ON DELETE CASCADE handles child folders; ON DELETE SET NULL orphans items to root
     db.conn.execute("DELETE FROM file_cabinet_folders WHERE id = ?1", params![id])?;
     Ok(())
@@ -329,8 +324,7 @@ pub async fn upsert_cabinet_item(
 ) -> std::result::Result<CabinetItem, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     if let Some(existing_id) = payload.id {
         db.conn.execute(
@@ -404,8 +398,7 @@ pub async fn delete_cabinet_item(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM file_cabinet_items WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -421,8 +414,7 @@ pub async fn move_cabinet_item(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     let new_sort: i64 = if let Some(after) = after_id {
         let after_sort: i64 = db.conn.query_row(
@@ -464,8 +456,7 @@ pub async fn move_cabinet_folder(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     // Guard against moving a folder into its own subtree
     // (walk up from parent_id; if we hit `id`, it's a cycle)

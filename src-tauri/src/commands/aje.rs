@@ -34,12 +34,7 @@ pub async fn post_aje(
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
 
     // Guard: locked engagements are immutable
-    let is_locked: i64 = db
-        .conn
-        .query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 {
-        return Err(AppError::EngagementLocked);
-    }
+    db.ensure_unlocked()?;
 
     // Validate balance
     let total_debits: f64 = payload.lines.iter().map(|l| l.debit).sum();
@@ -164,9 +159,12 @@ pub async fn list_ajes(
         })?
         .collect::<std::result::Result<_, _>>()?;
 
+    // Index aje_id -> position once, then attach lines in O(1) each (E3).
+    let index: std::collections::HashMap<i64, usize> =
+        ajes.iter().enumerate().map(|(i, a)| (a.id, i)).collect();
     for line in lines {
-        if let Some(aje) = ajes.iter_mut().find(|a| a.id == line.aje_id) {
-            aje.lines.push(line);
+        if let Some(&i) = index.get(&line.aje_id) {
+            ajes[i].lines.push(line);
         }
     }
 
@@ -184,12 +182,7 @@ pub async fn update_aje(
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
 
-    let is_locked: i64 = db
-        .conn
-        .query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 {
-        return Err(AppError::EngagementLocked);
-    }
+    db.ensure_unlocked()?;
 
     let is_voided: i64 = db.conn.query_row(
         "SELECT is_voided FROM ajes WHERE id = ?1",
@@ -254,12 +247,7 @@ pub async fn void_aje(
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
 
-    let is_locked: i64 = db
-        .conn
-        .query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 {
-        return Err(AppError::EngagementLocked);
-    }
+    db.ensure_unlocked()?;
 
     db.transaction(|conn| {
         conn.execute(

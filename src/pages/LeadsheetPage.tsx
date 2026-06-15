@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAtom, useSetAtom } from "jotai";
 import { mapNumbersAtom, groupingsAtom, settingsAtom, engagementAtom, activeLeadsheetAtom, activeDocTemplateAtom } from "@/store/atoms";
@@ -502,6 +502,13 @@ export default function LeadsheetPage() {
     ? (query.type === "map" ? `map:${query.key}` : `group:${query.key}`)
     : "";
 
+  // O(1) annotation lookup by account number (M4) — avoids a linear find per row.
+  const annotationByAccount = useMemo(() => {
+    const m = new Map<string, LeadsheetAnnotation>();
+    for (const a of annotations) m.set(a.account_number, a);
+    return m;
+  }, [annotations]);
+
   const handleSaveNotes = async () => {
     if (!query || !sheet) return;
     await saveLeadsheetNote(annotationScope, notes, settings.user_name);
@@ -509,7 +516,7 @@ export default function LeadsheetPage() {
 
   const handleSaveNote = async (accountNumber: string, note: string | null) => {
     if (!query) return;
-    const existing = annotations.find(x => x.account_number === accountNumber);
+    const existing = annotationByAccount.get(accountNumber);
     await upsertAnnotation({
       account_number: accountNumber,
       scope: annotationScope,
@@ -521,7 +528,7 @@ export default function LeadsheetPage() {
 
   const handleSaveFileRef = async (accountNumber: string, cabinetItemId: number | null) => {
     if (!query) return;
-    const existing = annotations.find(x => x.account_number === accountNumber);
+    const existing = annotationByAccount.get(accountNumber);
     await upsertAnnotation({
       account_number: accountNumber,
       scope: annotationScope,
@@ -619,7 +626,7 @@ export default function LeadsheetPage() {
                 </thead>
                 <tbody>
                   {sheet.accounts.map((a) => {
-                    const ann = annotations.find(x => x.account_number === a.account_number);
+                    const ann = annotationByAccount.get(a.account_number) ?? null;
                     const locked = !!engagement?.is_locked;
                     return (
                       <tr key={a.id} style={{ position: "relative" }}>
@@ -754,7 +761,7 @@ export default function LeadsheetPage() {
       {filePickerAccount && cabinetTree && (
         <FilePicker
           tree={cabinetTree}
-          currentItemId={annotations.find(x => x.account_number === filePickerAccount)?.cabinet_item_id ?? null}
+          currentItemId={annotationByAccount.get(filePickerAccount)?.cabinet_item_id ?? null}
           dbPath={engagement?.db_path}
           onSelect={(item) => handleSaveFileRef(filePickerAccount, item.id)}
           onClear={() => handleSaveFileRef(filePickerAccount, null)}

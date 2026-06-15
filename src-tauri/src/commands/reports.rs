@@ -1,11 +1,10 @@
 use crate::error::{AppError, Result};
 use crate::models::{
-    CustomVar, EngagementMeta, MapTotal, ReportData, ResolvedLine, ResolvedStatement, Statement,
-    StatementLine,
+    map_engagement_row, CustomVar, EngagementMeta, MapTotal, ReportData, ResolvedLine,
+    ResolvedStatement, Statement, StatementLine, ENGAGEMENT_COLUMNS,
 };
 use crate::report_engine::{eval, EvalContext};
 use crate::AppState;
-use chrono::Utc;
 use rusqlite::params;
 use std::collections::HashMap;
 use tauri::State;
@@ -21,21 +20,9 @@ pub async fn render_report_data(
 
     // Engagement metadata
     let engagement = db.conn.query_row(
-        "SELECT id, entity_name, year_end, fiscal_year, currency, is_locked, created_at
-         FROM engagement LIMIT 1",
+        &format!("SELECT {ENGAGEMENT_COLUMNS} FROM engagement LIMIT 1"),
         [],
-        |r| {
-            Ok(EngagementMeta {
-                id: r.get(0)?,
-                entity_name: r.get(1)?,
-                year_end: r.get(2)?,
-                fiscal_year: r.get(3)?,
-                currency: r.get(4)?,
-                is_locked: r.get::<_, i32>(5)? != 0,
-                created_at: Utc::now(),
-                db_path: db.path.clone(),
-            })
-        },
+        |r| map_engagement_row(r, db.path.clone()),
     )?;
 
     // Map totals: current & prior, plus AJE-adjusted current
@@ -97,21 +84,9 @@ pub async fn render_report_data(
 
 fn fetch_engagement(db: &crate::db::AppDb) -> Result<EngagementMeta> {
     Ok(db.conn.query_row(
-        "SELECT id, entity_name, year_end, fiscal_year, currency, is_locked, created_at
-         FROM engagement LIMIT 1",
+        &format!("SELECT {ENGAGEMENT_COLUMNS} FROM engagement LIMIT 1"),
         [],
-        |r| {
-            Ok(EngagementMeta {
-                id: r.get(0)?,
-                entity_name: r.get(1)?,
-                year_end: r.get(2)?,
-                fiscal_year: r.get(3)?,
-                currency: r.get(4)?,
-                is_locked: r.get::<_, i32>(5)? != 0,
-                created_at: Utc::now(),
-                db_path: db.path.clone(),
-            })
-        },
+        |r| map_engagement_row(r, db.path.clone()),
     )?)
 }
 
@@ -303,6 +278,10 @@ pub async fn resolve_statement(
 
     let lines = fetch_statement_lines(db, statement_id)?;
 
+    // Build the note registry once (not per-line — see E1). Cheap if no labels
+    // reference notes; expand_note_refs short-circuits on labels without tags.
+    let note_registry = build_global_note_map(db);
+
     // Depth lookup from parent chain.
     let parent_of: HashMap<i64, Option<i64>> =
         lines.iter().map(|l| (l.id, l.parent_id)).collect();
@@ -409,7 +388,7 @@ pub async fn resolve_statement(
             line_no: line.line_no,
             depth,
             line_type: line.line_type.clone(),
-            label: expand_note_refs(&line.label, db),
+            label: expand_note_refs(&line.label, &note_registry),
             current,
             prior,
             text,
@@ -437,8 +416,7 @@ pub async fn upsert_statement(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     if let Some(id) = payload.id {
         db.conn.execute(
@@ -467,8 +445,7 @@ pub async fn delete_statement(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM statements WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -494,8 +471,7 @@ pub async fn upsert_statement_line(
 ) -> std::result::Result<i64, AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
 
     if let Some(id) = payload.id {
         db.conn.execute(
@@ -544,8 +520,7 @@ pub async fn delete_statement_line(
 ) -> std::result::Result<(), AppError> {
     let guard = state.db.lock().unwrap();
     let db = guard.as_ref().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.conn.execute("DELETE FROM statement_lines WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -558,8 +533,7 @@ pub async fn reorder_statement_lines(
 ) -> std::result::Result<(), AppError> {
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
-    let is_locked: i64 = db.conn.query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 { return Err(AppError::EngagementLocked); }
+    db.ensure_unlocked()?;
     db.transaction(|conn| {
         for (i, id) in ordered_ids.iter().enumerate() {
             conn.execute(
@@ -708,11 +682,12 @@ fn build_global_note_map(db: &crate::db::AppDb) -> HashMap<String, i64> {
 }
 
 /// Replace `{{note_ref:key}}` tags in a label with "Note N".
-fn expand_note_refs(label: &str, db: &crate::db::AppDb) -> String {
+/// `registry` is the pre-built note map (see `build_global_note_map`); pass it
+/// in so callers in a loop don't rebuild it per line.
+fn expand_note_refs(label: &str, registry: &HashMap<String, i64>) -> String {
     if !label.contains("{{note_ref:") {
         return label.to_string();
     }
-    let registry = build_global_note_map(db);
     let mut out = String::new();
     let mut remaining = label;
     while let Some(start) = remaining.find("{{") {

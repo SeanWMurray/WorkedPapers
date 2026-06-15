@@ -18,12 +18,7 @@ pub async fn sign_off(
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
 
-    let is_locked: i64 = db
-        .conn
-        .query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 {
-        return Err(AppError::EngagementLocked);
-    }
+    db.ensure_unlocked()?;
 
     let now = Utc::now().to_rfc3339();
     let hash_input = format!("{scope}|{role}|{signed_by}|{now}");
@@ -143,7 +138,6 @@ pub async fn verify_integrity(
 
 /// SHA-256 over all material financial data rows, in deterministic order.
 fn compute_content_hash(conn: &rusqlite::Connection) -> std::result::Result<String, AppError> {
-    use std::fmt::Write as _;
     let mut hasher = Sha256::new();
 
     // Trial balance accounts + balances
@@ -242,11 +236,7 @@ fn compute_content_hash(conn: &rusqlite::Connection) -> std::result::Result<Stri
         hasher.update(format!("ENG|{row}\n").as_bytes());
     }
 
-    let mut hex = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        write!(hex, "{byte:02x}").unwrap();
-    }
-    Ok(hex)
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[tauri::command]
@@ -266,14 +256,17 @@ pub async fn get_audit_trail(
 
     let entries = stmt
         .query_map(params![limit], |r| {
+            let performed_at = crate::models::parse_db_datetime(&r.get::<_, String>(5)?);
+            let detail = serde_json::from_str(&r.get::<_, String>(6)?)
+                .unwrap_or(serde_json::Value::Null);
             Ok(AuditEntry {
                 id: r.get(0)?,
                 action: r.get(1)?,
                 entity: r.get(2)?,
                 entity_id: r.get(3)?,
                 performed_by: r.get(4)?,
-                performed_at: Utc::now(),
-                detail: serde_json::Value::Null,
+                performed_at,
+                detail,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
@@ -290,12 +283,7 @@ pub async fn remove_signoff(
     let mut guard = state.db.lock().unwrap();
     let db = guard.as_mut().ok_or(AppError::NoEngagementOpen)?;
 
-    let is_locked: i64 = db
-        .conn
-        .query_row("SELECT is_locked FROM engagement LIMIT 1", [], |r| r.get(0))?;
-    if is_locked != 0 {
-        return Err(AppError::EngagementLocked);
-    }
+    db.ensure_unlocked()?;
 
     db.transaction(|conn| {
         let rows = conn.execute("DELETE FROM signoffs WHERE id = ?1", params![id])?;
