@@ -51,6 +51,8 @@ pub fn run() {
             commands::leadsheet::save_leadsheet_note,
             commands::leadsheet::add_tickmark,
             commands::leadsheet::remove_tickmark,
+            commands::leadsheet::get_annotations,
+            commands::leadsheet::upsert_annotation,
             // Sign-offs & Audit Trail
             commands::signoff::sign_off,
             commands::signoff::remove_signoff,

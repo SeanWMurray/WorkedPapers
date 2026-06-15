@@ -1,9 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAtom } from "jotai";
 import { ajesAtom, engagementAtom, settingsAtom, tbAccountsAtom } from "@/store/atoms";
-import { listAjes, getTbAccounts, postAje, updateAje, voidAje } from "@/lib/tauri";
+import { listAjes, getTbAccounts, postAje, updateAje, voidAje, signOff, removeSignoff, getSignoffs } from "@/lib/tauri";
 import { formatAccounting, formatDate } from "@/lib/format";
-import type { Aje, AjeType, TbAccount } from "@/types";
+import type { Aje, AjeType, TbAccount, Signoff, SignoffRole } from "@/types";
+
+const ROLES: SignoffRole[] = ["PREPARER", "REVIEWER", "PARTNER"];
+const ROLE_SHORT: Record<SignoffRole, string> = { PREPARER: "Prep", REVIEWER: "Rev", PARTNER: "Ptr" };
 
 export default function AjePage() {
   const [ajes, setAjes] = useAtom(ajesAtom);
@@ -12,6 +15,17 @@ export default function AjePage() {
   const [accounts, setAccounts] = useAtom(tbAccountsAtom);
   const [showNewForm, setShowNewForm] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [signoffs, setSignoffs] = useState<Record<string, Signoff[]>>({});
+
+  const refreshSignoffs = useCallback(async () => {
+    const all = await getSignoffs();
+    const byScope: Record<string, Signoff[]> = {};
+    for (const s of all) {
+      if (!byScope[s.scope]) byScope[s.scope] = [];
+      byScope[s.scope].push(s);
+    }
+    setSignoffs(byScope);
+  }, []);
 
   const refresh = useCallback(async () => {
     const [ajeList, accts] = await Promise.all([listAjes(), getTbAccounts()]);
@@ -21,7 +35,8 @@ export default function AjePage() {
 
   useEffect(() => {
     refresh().catch(() => {});
-  }, [refresh]);
+    refreshSignoffs().catch(() => {});
+  }, [refresh, refreshSignoffs]);
 
   const handleVoid = async (aje: Aje) => {
     const reason = prompt(`Void ${aje.aje_number}? Enter reason:`);
@@ -129,6 +144,10 @@ export default function AjePage() {
           isLocked={!!engagement?.is_locked || selectedAje.is_voided}
           preparedBy={settings.user_name}
           currency={engagement?.currency ?? "USD"}
+          signoffs={signoffs[`aje:${selectedAje.id}`] ?? []}
+          onSignoffChanged={refreshSignoffs}
+          currentUser={settings.user_name}
+          currentInitials={settings.user_initials}
         />
       )}
     </div>
@@ -263,6 +282,10 @@ function AjeForm({
   isLocked,
   preparedBy,
   currency,
+  signoffs,
+  onSignoffChanged,
+  currentUser,
+  currentInitials,
 }: {
   accounts: TbAccount[];
   existingAje?: Aje;
@@ -274,6 +297,10 @@ function AjeForm({
   isLocked?: boolean;
   preparedBy: string;
   currency: string;
+  signoffs?: Signoff[];
+  onSignoffChanged?: () => void;
+  currentUser?: string;
+  currentInitials?: string;
 }) {
   const isEditing = !!existingAje;
 
@@ -487,6 +514,48 @@ function AjeForm({
         </div>
       )}
       {error && <div style={{ color: "var(--color-danger)", fontSize: 12, marginTop: 4 }}>{error}</div>}
+
+      {existingAje && signoffs !== undefined && currentUser && onSignoffChanged && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)", display: "flex", gap: 16, alignItems: "center" }}>
+          {ROLES.map((role) => {
+            const scope = `aje:${existingAje.id}`;
+            const signers = signoffs.filter((s) => s.role === role);
+            const myEntry = signers.find((s) => s.signed_by === currentUser);
+            const handleClick = async () => {
+              if (isLocked) return;
+              if (myEntry) {
+                await removeSignoff(myEntry.id, currentUser);
+              } else {
+                await signOff(scope, role, currentUser, currentInitials ?? "");
+              }
+              onSignoffChanged();
+            };
+            return (
+              <div key={role} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted)" }}>
+                  {ROLE_SHORT[role]}
+                </span>
+                {signers.length > 0 ? (
+                  <span
+                    title={signers.map((s) => s.signed_by).join(", ")}
+                    onClick={handleClick}
+                    style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "var(--color-primary)", cursor: isLocked ? "default" : "pointer" }}
+                  >
+                    {signers.map((s) => s.signed_initials || s.signed_by.split(/\s+/).map((w) => w[0] ?? "").join("").toUpperCase()).join("/")}
+                  </span>
+                ) : !isLocked ? (
+                  <span
+                    onClick={handleClick}
+                    style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-text-muted)", cursor: "pointer" }}
+                  >
+                    —
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

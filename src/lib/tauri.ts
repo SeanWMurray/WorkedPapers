@@ -143,6 +143,17 @@ export const getLeadsheet = (query: { map_number?: string; grouping_id?: number 
 export const saveLeadsheetNote = (scope: string, content: string, updatedBy: string) =>
   invoke<void>("save_leadsheet_note", { scope, content, updatedBy });
 
+export const getAnnotations = (scope: string) =>
+  invoke<import("@/types").LeadsheetAnnotation[]>("get_annotations", { scope });
+
+export const upsertAnnotation = (payload: {
+  account_number: string;
+  scope: string;
+  note: string | null;
+  cabinet_item_id: number | null;
+}, updatedBy: string) =>
+  invoke<void>("upsert_annotation", { payload, updatedBy });
+
 export const addTickmark = (
   symbol: string,
   description: string,

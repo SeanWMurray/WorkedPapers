@@ -93,6 +93,11 @@ impl AppDb {
             self.conn.execute("INSERT INTO schema_version (version) VALUES (9)", [])?;
         }
 
+        if version < 10 {
+            self.conn.execute_batch(include_str!("../migrations/010_leadsheet_annotations.sql"))?;
+            self.conn.execute("INSERT INTO schema_version (version) VALUES (10)", [])?;
+        }
+
         Ok(())
     }
 

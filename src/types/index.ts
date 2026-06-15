@@ -293,6 +293,17 @@ export interface CabinetTree {
   disk_files: AttachedFile[];
 }
 
+export interface LeadsheetAnnotation {
+  id: number;
+  account_number: string;
+  scope: string;
+  note: string | null;
+  cabinet_item_id: number | null;
+  cabinet_item_name: string | null;
+  updated_by: string;
+  updated_at: string;
+}
+
 export interface AuditEntry {
   id: number;
   action: string;

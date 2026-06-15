@@ -28,7 +28,7 @@ Contact me on LinkedIn if you want help setting this up, always happy to meet ot
 
 - **Frontend:** React 18, TypeScript, Vite, Jotai
 - **Backend:** Tauri 1.x (Rust), rusqlite (bundled SQLite), rayon
-- **Encryption:** AES-256-GCM for `.wwp` archive files, SHA-256 engagement seal
+- **Encryption:** AES-256-GCM for `.wwp` archive files, PBKDF2-SHA256 key derivation (100k rounds), SHA-256 engagement seal
 - **Database:** One SQLite file per engagement, WAL mode
 
 ---
@@ -47,7 +47,7 @@ Contact me on LinkedIn if you want help setting this up, always happy to meet ot
 - Sign-offs at any scope with preparer and reviewer roles
 - Engagement locking with a SHA-256 integrity seal and post-lock tamper detection
 - Roll-forward to a new engagement year without touching the source file
-- `.wwp` archive export and import with AES-256-GCM encryption
+- `.wwp` archive export and import — Deflate-compressed ZIP encrypted with AES-256-GCM
 
 ---
 
@@ -80,6 +80,22 @@ npm run tauri build
 ## Engagement files
 
 Each engagement is a `.db` file. Opening one loads it into the app. The roll-forward command creates a new `.db` for the next year without modifying the source. The `.wwp` export bundles the engagement into an encrypted archive for transfer or archival.
+
+---
+
+## .wwp archive format
+
+A `.wwp` file is the engagement's portable archive format. The layout on disk is:
+
+```
+[4 bytes]  Magic: "WWP1"
+[12 bytes] AES-GCM nonce (random, generated per export)
+[n bytes]  AES-256-GCM ciphertext
+```
+
+The ciphertext decrypts to a standard ZIP archive (Deflate, level 6) containing the engagement directory — the `.db` file and any attachments. The encryption key is derived from the user-supplied password using 100,000 rounds of SHA-256 (a simplified PBKDF2). A wrong password produces a GCM authentication failure rather than corrupted output, so there is no ambiguity about whether decryption succeeded.
+
+To open a `.wwp`: use the Import button on the welcome screen, choose a folder to extract into, and enter the password. The extracted `.db` is opened automatically.
 
 ---
 
